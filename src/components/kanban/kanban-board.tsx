@@ -12,7 +12,7 @@ import { CreateListDialog } from "./create-list-dialog";
 import { TaskDetailModal } from "@/components/tasks/task-detail-modal";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import { reorderTasksInList, type TaskWithRelations } from "@/lib/actions/tasks";
+import { reorderTasksInList, getTask, type TaskWithRelations } from "@/lib/actions/tasks";
 import type { List } from "@/lib/actions/lists";
 
 interface KanbanBoardProps {
@@ -151,9 +151,16 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks }: KanbanBoardP
     setCreateTaskListId(null);
   };
 
-  const handleTaskUpdated = () => {
-    // Refresh the page to get updated data
-    window.location.reload();
+  const handleTaskUpdated = async () => {
+    // Refetch the updated task and update local state
+    if (selectedTaskId) {
+      const updatedTask = await getTask(selectedTaskId);
+      if (updatedTask) {
+        setLocalTasks((prev) =>
+          prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+        );
+      }
+    }
   };
 
   const handleListCreated = (list: List) => {
