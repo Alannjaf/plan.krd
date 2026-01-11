@@ -9,11 +9,9 @@ import {
   uploadAttachment,
   deleteAttachment,
   getAttachmentUrl,
-  isImageFile,
-  isPdfFile,
-  formatFileSize,
   type Attachment,
 } from "@/lib/actions/attachments";
+import { isImageFile, isPdfFile, formatFileSize } from "@/lib/utils/file-helpers";
 import { logActivity } from "@/lib/actions/activities";
 import {
   Paperclip,
