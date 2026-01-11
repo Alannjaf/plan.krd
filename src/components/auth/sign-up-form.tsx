@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,9 @@ import { Loader2, CheckCircle } from "lucide-react";
 import Link from "next/link";
 
 export function SignUpForm() {
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -33,7 +37,7 @@ export function SignUpForm() {
 
     setIsLoading(true);
 
-    const result = await signUpWithEmail(email, password);
+    const result = await signUpWithEmail(email, password, next || undefined);
 
     if (!result.success) {
       setError(result.error || "Failed to sign up");
@@ -46,7 +50,7 @@ export function SignUpForm() {
 
   const handleGoogleSignIn = async () => {
     setIsGoogleLoading(true);
-    await signInWithGoogle();
+    await signInWithGoogle(next || undefined);
   };
 
   if (isSuccess) {
@@ -178,7 +182,10 @@ export function SignUpForm() {
 
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{" "}
-        <Link href="/auth/sign-in" className="text-primary hover:underline">
+        <Link 
+          href={next ? `/auth/sign-in?next=${encodeURIComponent(next)}` : "/auth/sign-in"} 
+          className="text-primary hover:underline"
+        >
           Sign in
         </Link>
       </p>

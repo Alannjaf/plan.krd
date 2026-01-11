@@ -4,15 +4,20 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 
-export async function signInWithGoogle() {
+export async function signInWithGoogle(redirectTo?: string) {
   const supabase = await createClient();
   const headersList = await headers();
   const origin = headersList.get("origin") || "http://localhost:3000";
 
+  // Build callback URL with optional next parameter
+  const callbackUrl = redirectTo 
+    ? `${origin}/auth/callback?next=${encodeURIComponent(redirectTo)}`
+    : `${origin}/auth/callback`;
+
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: `${origin}/auth/callback`,
+      redirectTo: callbackUrl,
       queryParams: {
         access_type: "offline",
         prompt: "consent",
@@ -54,7 +59,8 @@ export async function getSession() {
 
 export async function signInWithEmail(
   email: string,
-  password: string
+  password: string,
+  redirectTo?: string
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
@@ -68,22 +74,30 @@ export async function signInWithEmail(
     return { success: false, error: error.message };
   }
 
-  redirect("/dashboard");
+  // Redirect to the specified URL or default to dashboard
+  const destination = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/dashboard";
+  redirect(destination);
 }
 
 export async function signUpWithEmail(
   email: string,
-  password: string
+  password: string,
+  redirectTo?: string
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
   const headersList = await headers();
   const origin = headersList.get("origin") || "http://localhost:3000";
 
+  // Build confirmation URL with optional next parameter
+  const confirmUrl = redirectTo
+    ? `${origin}/auth/confirm?next=${encodeURIComponent(redirectTo)}`
+    : `${origin}/auth/confirm`;
+
   const { error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      emailRedirectTo: `${origin}/auth/confirm`,
+      emailRedirectTo: confirmUrl,
     },
   });
 
