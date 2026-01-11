@@ -204,10 +204,17 @@ export async function getInvitationByToken(
     .single();
 
   if (error || !invitation) {
+    console.error("Error fetching invitation by token:", error);
     return { invitation: null, workspace: null };
   }
 
-  const workspace = (invitation as { workspaces: { name: string } }).workspaces;
+  const workspace = (invitation as { workspaces: { name: string } | null }).workspaces;
+
+  // If workspace is null (RLS issue or deleted workspace), return null
+  if (!workspace) {
+    console.error("Workspace not found for invitation");
+    return { invitation: null, workspace: null };
+  }
 
   return {
     invitation: {
