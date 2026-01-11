@@ -68,7 +68,7 @@ export function TaskDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl h-[85vh] p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-5xl w-[95vw] h-[85vh] p-0 gap-0 overflow-hidden">
         <VisuallyHidden>
           <DialogTitle>{task?.title || "Task Details"}</DialogTitle>
         </VisuallyHidden>
@@ -87,9 +87,9 @@ export function TaskDetailModal({
             </DialogHeader>
 
             <div className="flex-1 overflow-hidden">
-              <div className="grid grid-cols-1 lg:grid-cols-3 h-full">
+              <div className="flex h-full">
                 {/* Main Content */}
-                <div className="lg:col-span-2 border-r border-border/50">
+                <div className="flex-1 min-w-0 border-r border-border/50">
                   <ScrollArea className="h-full">
                     <div className="p-6 space-y-6">
                       {/* Description */}
@@ -154,7 +154,7 @@ export function TaskDetailModal({
                 </div>
 
                 {/* Sidebar */}
-                <div className="hidden lg:block">
+                <div className="w-72 shrink-0">
                   <ScrollArea className="h-full">
                     <div className="p-6 space-y-6">
                       {/* Assignees */}
