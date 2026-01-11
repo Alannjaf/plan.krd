@@ -31,10 +31,7 @@ export async function getNotifications(limit: number = 20): Promise<Notification
 
   const { data, error } = await supabase
     .from("notifications")
-    .select(`
-      *,
-      actor:actor_id(id, full_name, avatar_url)
-    `)
+    .select("*")
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -44,7 +41,30 @@ export async function getNotifications(limit: number = 20): Promise<Notification
     return [];
   }
 
-  return data as Notification[];
+  if (!data) return [];
+
+  // Fetch actor profiles separately since actor_id references auth.users, not profiles
+  const actorIds = data.filter((n) => n.actor_id).map((n) => n.actor_id);
+  const actorProfilesMap = new Map<string, { id: string; full_name: string | null; avatar_url: string | null }>();
+
+  if (actorIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, full_name, avatar_url")
+      .in("id", actorIds);
+
+    if (profiles) {
+      profiles.forEach((profile) => {
+        actorProfilesMap.set(profile.id, profile);
+      });
+    }
+  }
+
+  // Combine notifications with actor profiles
+  return data.map((notification) => ({
+    ...notification,
+    actor: notification.actor_id ? (actorProfilesMap.get(notification.actor_id) || null) : null,
+  })) as Notification[];
 }
 
 export async function getUnreadCount(): Promise<number> {
