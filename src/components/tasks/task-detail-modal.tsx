@@ -41,26 +41,26 @@ export function TaskDetailModal({
   onTaskUpdated,
 }: TaskDetailModalProps) {
   const [task, setTask] = useState<TaskWithRelations | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(false);
 
   useEffect(() => {
     if (taskId && open) {
-      loadTask();
+      loadTask(true);
     } else {
       setTask(null);
     }
   }, [taskId, open]);
 
-  const loadTask = async () => {
+  const loadTask = async (isInitial = false) => {
     if (!taskId) return;
-    setLoading(true);
+    if (isInitial) setInitialLoading(true);
     const data = await getTask(taskId);
     setTask(data);
-    setLoading(false);
+    if (isInitial) setInitialLoading(false);
   };
 
   const handleTaskUpdate = () => {
-    loadTask();
+    loadTask(false); // Silent refresh, no loading state
     onTaskUpdated?.();
   };
 
@@ -72,7 +72,7 @@ export function TaskDetailModal({
         <VisuallyHidden>
           <DialogTitle>{task?.title || "Task Details"}</DialogTitle>
         </VisuallyHidden>
-        {loading ? (
+        {initialLoading ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
