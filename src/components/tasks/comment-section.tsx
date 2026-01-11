@@ -15,26 +15,113 @@ import { Loader2, Send } from "lucide-react";
 interface CommentSectionProps {
   taskId: string;
   workspaceId: string;
+  setTask?: React.Dispatch<React.SetStateAction<any>>;
+  onChanged?: () => void;
 }
+
+type Member = {
+  user_id: string;
+  role: string;
+  profiles: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
 
 export function CommentSection({
   taskId,
   workspaceId,
+  setTask,
+  onChanged,
 }: CommentSectionProps) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newComment, setNewComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const [mentionSearch, setMentionSearch] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     loadComments();
-  }, [taskId]);
+    loadMembers();
+  }, [taskId, workspaceId]);
 
   const loadComments = async () => {
     setIsLoading(true);
     const data = await getComments(taskId);
     setComments(data);
     setIsLoading(false);
+  };
+
+  const loadMembers = async () => {
+    const data = await getWorkspaceMembers(workspaceId);
+    setMembers(data as unknown as Member[]);
+  };
+
+  const filteredMembers = members.filter((member) => {
+    if (!mentionSearch) return true;
+    const name = member.profiles?.full_name || member.profiles?.email || "";
+    return name.toLowerCase().includes(mentionSearch.toLowerCase());
+  });
+
+  const getInitials = (name: string | null, email: string | null) => {
+    if (name) {
+      return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
+    }
+    return email?.slice(0, 2).toUpperCase() || "??";
+  };
+
+  const handleTextChange = (value: string) => {
+    setNewComment(value);
+
+    // Check for @ mention trigger
+    const cursorPos = textareaRef.current?.selectionStart || value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const lastAtIndex = textBeforeCursor.lastIndexOf("@");
+
+    if (lastAtIndex !== -1) {
+      const textAfterAt = textBeforeCursor.slice(lastAtIndex + 1);
+      // Only show if there's no space or newline after @
+      if (!textAfterAt.match(/[\s\n]/)) {
+        setMentionSearch(textAfterAt);
+        setShowMentions(true);
+        setMentionIndex(0);
+        return;
+      }
+    }
+
+    setShowMentions(false);
+    setMentionSearch("");
+  };
+
+  const insertMention = (member: Member) => {
+    const cursorPos = textareaRef.current?.selectionStart || 0;
+    const textBeforeCursor = newComment.slice(0, cursorPos);
+    const textAfterCursor = newComment.slice(cursorPos);
+    const lastAtIndex = textBeforeCursor.lastIndexOf("@");
+
+    if (lastAtIndex !== -1) {
+      const name = member.profiles?.full_name || member.profiles?.email || "";
+      const beforeAt = textBeforeCursor.slice(0, lastAtIndex);
+      const newText = `${beforeAt}@${name} ${textAfterCursor}`;
+      setNewComment(newText);
+      setShowMentions(false);
+      setMentionSearch("");
+      
+      // Set cursor position after the inserted mention
+      setTimeout(() => {
+        if (textareaRef.current) {
+          const newPos = beforeAt.length + name.length + 2; // +2 for @ and space
+          textareaRef.current.setSelectionRange(newPos, newPos);
+          textareaRef.current.focus();
+        }
+      }, 0);
+    }
   };
 
   const handleSubmit = async () => {
@@ -63,13 +150,82 @@ export function CommentSection({
         <Avatar className="h-8 w-8 shrink-0">
           <AvatarFallback className="text-xs">ME</AvatarFallback>
         </Avatar>
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 space-y-2 relative">
           <Textarea
+            ref={textareaRef}
             placeholder="Write a comment... Use @username to mention someone"
             value={newComment}
-            onChange={(e) => setNewComment(e.target.value)}
+            onChange={(e) => handleTextChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (showMentions) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setMentionIndex((prev) => Math.min(prev + 1, filteredMembers.length - 1));
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setMentionIndex((prev) => Math.max(prev - 1, 0));
+                } else if (e.key === "Enter" && filteredMembers[mentionIndex]) {
+                  e.preventDefault();
+                  insertMention(filteredMembers[mentionIndex]);
+                } else if (e.key === "Escape") {
+                  setShowMentions(false);
+                }
+              }
+            }}
             className="min-h-[80px] resize-none"
           />
+          {showMentions && (
+            <Popover open={showMentions} onOpenChange={setShowMentions}>
+              <PopoverContent
+                className="w-64 p-0"
+                align="start"
+                style={{
+                  position: "absolute",
+                  top: textareaRef.current ? `${textareaRef.current.scrollHeight + 8}px` : "auto",
+                }}
+              >
+                <ScrollArea className="max-h-[200px]">
+                  {filteredMembers.length === 0 ? (
+                    <div className="p-4 text-sm text-muted-foreground text-center">
+                      No members found
+                    </div>
+                  ) : (
+                    <div className="py-1">
+                      {filteredMembers.map((member, index) => {
+                        const name = member.profiles?.full_name || member.profiles?.email || "Unknown";
+                        return (
+                          <div
+                            key={member.user_id}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted transition-colors",
+                              index === mentionIndex && "bg-muted"
+                            )}
+                            onClick={() => insertMention(member)}
+                            onMouseEnter={() => setMentionIndex(index)}
+                          >
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={member.profiles?.avatar_url || undefined} />
+                              <AvatarFallback className="text-xs">
+                                {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium truncate">{name}</div>
+                              {member.profiles?.email && member.profiles?.full_name && (
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {member.profiles.email}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </ScrollArea>
+              </PopoverContent>
+            </Popover>
+          )}
           <div className="flex justify-end">
             <Button
               size="sm"

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { KanbanBoard } from "@/components/kanban/kanban-board";
 import { ListView } from "@/components/views/list-view";
 import { CalendarView } from "@/components/views/calendar-view";
@@ -28,10 +29,13 @@ export function BoardContent({
   lists,
   initialTasks,
 }: BoardContentProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [showArchived, setShowArchived] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [currentView, setCurrentView] = useState<ViewType>("kanban");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({
     assigneeId: null,
     labelId: null,
@@ -39,6 +43,16 @@ export function BoardContent({
     dueDateFrom: null,
     dueDateTo: null,
   });
+
+  // Read task ID from URL param on mount
+  useEffect(() => {
+    const taskParam = searchParams.get("task");
+    if (taskParam) {
+      setSelectedTaskId(taskParam);
+      // Remove the param from URL without navigation
+      router.replace(`/${workspace.id}/${board.id}`, { scroll: false });
+    }
+  }, [searchParams, workspace.id, board.id, router]);
 
   // Apply filters to tasks
   const filteredTasks = filterTasks(tasks, filters);
@@ -153,6 +167,20 @@ export function BoardContent({
           />
         )}
       </div>
+
+      {/* Task Detail Modal for URL param */}
+      <TaskDetailModal
+        taskId={selectedTaskId}
+        boardId={board.id}
+        workspaceId={workspace.id}
+        open={!!selectedTaskId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedTaskId(null);
+          }
+        }}
+        onTaskUpdated={() => {}}
+      />
     </div>
   );
 }

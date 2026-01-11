@@ -65,7 +65,7 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
     );
   }
 
-  // Search tasks
+  // Search tasks (title and description)
   const { data: tasks } = await supabase
     .from("tasks")
     .select(`
@@ -110,6 +110,68 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
         };
       })
     );
+  }
+
+  // Search tasks by attachment filename
+  const { data: tasksWithAttachments } = await supabase
+    .from("attachments")
+    .select(`
+      task_id,
+      file_name,
+      tasks!inner(
+        id,
+        title,
+        description,
+        archived,
+        lists!inner(
+          id,
+          boards!inner(
+            id,
+            name,
+            workspace_id,
+            workspaces(name)
+          )
+        )
+      )
+    `)
+    .ilike("file_name", searchPattern)
+    .eq("tasks.archived", false)
+    .limit(10);
+
+  if (tasksWithAttachments) {
+    const attachmentTaskIds = new Set(results.filter((r) => r.type === "task").map((r) => r.id));
+    
+    tasksWithAttachments.forEach((att) => {
+      const task = att.tasks as unknown as {
+        id: string;
+        title: string;
+        description: string | null;
+        lists: {
+          id: string;
+          boards: {
+            id: string;
+            name: string;
+            workspace_id: string;
+            workspaces: { name: string };
+          };
+        };
+      };
+
+      // Only add if not already in results
+      if (!attachmentTaskIds.has(task.id)) {
+        attachmentTaskIds.add(task.id);
+        results.push({
+          type: "task" as const,
+          id: task.id,
+          title: task.title,
+          description: task.description,
+          workspaceId: task.lists.boards.workspace_id,
+          workspaceName: task.lists.boards.workspaces?.name || "",
+          boardId: task.lists.boards.id,
+          boardName: task.lists.boards.name,
+        });
+      }
+    });
   }
 
   return results;
