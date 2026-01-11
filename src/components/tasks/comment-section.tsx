@@ -1,16 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Popover,
+  PopoverContent,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   getComments,
   createComment,
   type Comment,
 } from "@/lib/actions/comments";
+import { getWorkspaceMembers } from "@/lib/actions/assignees";
 import { CommentItem } from "./comment-item";
 import { Loader2, Send } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface CommentSectionProps {
   taskId: string;
