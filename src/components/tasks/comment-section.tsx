@@ -4,10 +4,6 @@ import { useState, useEffect, useRef } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Popover,
-  PopoverContent,
-} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   getComments,
@@ -182,56 +178,47 @@ export function CommentSection({
             className="min-h-[80px] resize-none"
           />
           {showMentions && (
-            <Popover open={showMentions} onOpenChange={setShowMentions}>
-              <PopoverContent
-                className="w-64 p-0"
-                align="start"
-                style={{
-                  position: "absolute",
-                  top: textareaRef.current ? `${textareaRef.current.scrollHeight + 8}px` : "auto",
-                }}
-              >
-                <ScrollArea className="max-h-[200px]">
-                  {filteredMembers.length === 0 ? (
-                    <div className="p-4 text-sm text-muted-foreground text-center">
-                      No members found
-                    </div>
-                  ) : (
-                    <div className="py-1">
-                      {filteredMembers.map((member, index) => {
-                        const name = member.profiles?.full_name || member.profiles?.email || "Unknown";
-                        return (
-                          <div
-                            key={member.user_id}
-                            className={cn(
-                              "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted transition-colors",
-                              index === mentionIndex && "bg-muted"
+            <div className="absolute z-50 w-64 mt-2 bg-popover border rounded-md shadow-md">
+              <ScrollArea className="max-h-[200px]">
+                {filteredMembers.length === 0 ? (
+                  <div className="p-4 text-sm text-muted-foreground text-center">
+                    No members found
+                  </div>
+                ) : (
+                  <div className="py-1">
+                    {filteredMembers.map((member, index) => {
+                      const name = member.profiles?.full_name || member.profiles?.email || "Unknown";
+                      return (
+                        <div
+                          key={member.user_id}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted transition-colors",
+                            index === mentionIndex && "bg-muted"
+                          )}
+                          onClick={() => insertMention(member)}
+                          onMouseEnter={() => setMentionIndex(index)}
+                        >
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage src={member.profiles?.avatar_url || undefined} />
+                            <AvatarFallback className="text-xs">
+                              {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">{name}</div>
+                            {member.profiles?.email && member.profiles?.full_name && (
+                              <div className="text-xs text-muted-foreground truncate">
+                                {member.profiles.email}
+                              </div>
                             )}
-                            onClick={() => insertMention(member)}
-                            onMouseEnter={() => setMentionIndex(index)}
-                          >
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage src={member.profiles?.avatar_url || undefined} />
-                              <AvatarFallback className="text-xs">
-                                {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium truncate">{name}</div>
-                              {member.profiles?.email && member.profiles?.full_name && (
-                                <div className="text-xs text-muted-foreground truncate">
-                                  {member.profiles.email}
-                                </div>
-                              )}
-                            </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </ScrollArea>
-              </PopoverContent>
-            </Popover>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
           )}
           <div className="flex justify-end">
             <Button
