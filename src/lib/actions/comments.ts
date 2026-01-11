@@ -30,7 +30,7 @@ export async function getComments(taskId: string): Promise<Comment[]> {
     .from("comments")
     .select("*, profiles(id, email, full_name, avatar_url)")
     .eq("task_id", taskId)
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: false });
 
   if (error) {
     console.error("Error fetching comments:", error);

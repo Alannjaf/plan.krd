@@ -147,9 +147,9 @@ export function CommentSection({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-full min-h-0">
       {/* Comment Input */}
-      <div className="flex gap-3">
+      <div className="flex gap-3 shrink-0 mb-4">
         <Avatar className="h-8 w-8 shrink-0">
           <AvatarFallback className="text-xs">ME</AvatarFallback>
         </Avatar>
@@ -243,16 +243,18 @@ export function CommentSection({
           No comments yet. Be the first to comment!
         </p>
       ) : (
-        <div className="space-y-4">
-          {comments.map((comment) => (
-            <CommentItem
-              key={comment.id}
-              comment={comment}
-              taskId={taskId}
-              onUpdate={loadComments}
-            />
-          ))}
-        </div>
+        <ScrollArea className="h-[500px]">
+          <div className="space-y-4 pr-4 pb-4">
+            {comments.map((comment) => (
+              <CommentItem
+                key={comment.id}
+                comment={comment}
+                taskId={taskId}
+                onUpdate={loadComments}
+              />
+            ))}
+          </div>
+        </ScrollArea>
       )}
     </div>
   );

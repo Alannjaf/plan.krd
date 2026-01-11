@@ -177,8 +177,8 @@ export function TaskDetailModal({
                       />
 
                       {/* Tabs for Comments, Activity, Attachments */}
-                      <Tabs defaultValue="comments" className="w-full">
-                        <TabsList className="w-full justify-start">
+                      <Tabs defaultValue="comments" className="w-full flex flex-col min-h-0 max-h-[calc(85vh-400px)]">
+                        <TabsList className="w-full justify-start shrink-0">
                           <TabsTrigger value="comments" className="gap-2">
                             <MessageSquare className="h-4 w-4" />
                             Comments
@@ -202,7 +202,7 @@ export function TaskDetailModal({
                             Activity
                           </TabsTrigger>
                         </TabsList>
-                        <TabsContent value="comments" className="mt-4">
+                        <TabsContent value="comments" className="mt-4 flex-1 min-h-0 flex flex-col">
                           <CommentSection
                             taskId={task.id}
                             workspaceId={workspaceId}
