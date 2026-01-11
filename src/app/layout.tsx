@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { Outfit, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { RTLProvider } from "@/lib/i18n/rtl-provider";
+import { QueryProvider } from "@/lib/query/provider";
+import { headers } from "next/headers";
+import { getLocaleFromHeaders, getDirectionFromLocale } from "@/lib/i18n/server-locale";
 
 const outfit = Outfit({
   variable: "--font-geist-sans",
@@ -21,17 +25,26 @@ export const metadata: Metadata = {
   keywords: ["task management", "project management", "AI", "collaboration", "productivity"],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Detect initial locale from headers for SSR
+  const headersList = await headers();
+  const initialLocale = getLocaleFromHeaders(headersList);
+  const initialDirection = getDirectionFromLocale(initialLocale);
+
   return (
-    <html lang="en">
+    <html lang={initialLocale} dir={initialDirection} suppressHydrationWarning>
       <body
         className={`${outfit.variable} ${jetbrainsMono.variable} antialiased`}
       >
-        {children}
+        <QueryProvider>
+          <RTLProvider initialLocale={initialLocale}>
+            {children}
+          </RTLProvider>
+        </QueryProvider>
       </body>
     </html>
   );

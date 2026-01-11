@@ -12,7 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createTask, type TaskWithRelations } from "@/lib/actions/tasks";
+import { useCreateTask } from "@/lib/query/mutations/tasks";
+import type { TaskWithRelations } from "@/lib/actions/tasks";
 
 interface CreateTaskDialogProps {
   open: boolean;
@@ -28,20 +29,21 @@ export function CreateTaskDialog({
   onTaskCreated,
 }: CreateTaskDialogProps) {
   const [title, setTitle] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const createTaskMutation = useCreateTask();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !listId) return;
 
-    setIsLoading(true);
-    const result = await createTask(listId, title.trim());
-    setIsLoading(false);
+    try {
+      const task = await createTaskMutation.mutateAsync({
+        listId,
+        title: title.trim(),
+      });
 
-    if (result.success && result.task) {
       // Create a TaskWithRelations object with empty relations
       const taskWithRelations: TaskWithRelations = {
-        ...result.task,
+        ...task,
         archived: false,
         archived_at: null,
         assignees: [],
@@ -53,6 +55,9 @@ export function CreateTaskDialog({
       };
       onTaskCreated(taskWithRelations);
       setTitle("");
+      onOpenChange(false);
+    } catch (error) {
+      console.error("Failed to create task:", error);
     }
   };
 
@@ -86,8 +91,8 @@ export function CreateTaskDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!title.trim() || isLoading}>
-              {isLoading ? "Creating..." : "Create Task"}
+            <Button type="submit" disabled={!title.trim() || createTaskMutation.isPending}>
+              {createTaskMutation.isPending ? "Creating..." : "Create Task"}
             </Button>
           </DialogFooter>
         </form>

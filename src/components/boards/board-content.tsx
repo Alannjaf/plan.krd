@@ -12,7 +12,8 @@ import { ViewSwitcher, type ViewType } from "./view-switcher";
 import { BoardFilter, filterTasks, type FilterState } from "./board-filter";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Archive, Eye, EyeOff } from "lucide-react";
-import { getTasksWithRelations, type TaskWithRelations } from "@/lib/actions/tasks";
+import { useTasksWithRelations } from "@/lib/query/queries/tasks";
+import type { TaskWithRelations } from "@/lib/actions/tasks";
 import type { List } from "@/lib/actions/lists";
 import type { Board } from "@/lib/actions/boards";
 import Link from "next/link";
@@ -32,9 +33,7 @@ export function BoardContent({
 }: BoardContentProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [tasks, setTasks] = useState(initialTasks);
   const [showArchived, setShowArchived] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [currentView, setCurrentView] = useState<ViewType>("kanban");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({
@@ -44,6 +43,9 @@ export function BoardContent({
     dueDateFrom: null,
     dueDateTo: null,
   });
+
+  // Use query hook for tasks
+  const { data: tasks = initialTasks, isLoading } = useTasksWithRelations(board.id, showArchived);
 
   // Read task ID from URL param on mount
   useEffect(() => {
@@ -58,15 +60,9 @@ export function BoardContent({
   // Apply filters to tasks
   const filteredTasks = filterTasks(tasks, filters);
 
-  const handleToggleArchived = async () => {
-    setIsLoading(true);
-    const newShowArchived = !showArchived;
-    setShowArchived(newShowArchived);
-    
-    // Refetch tasks with the new filter
-    const newTasks = await getTasksWithRelations(board.id, newShowArchived);
-    setTasks(newTasks);
-    setIsLoading(false);
+  const handleToggleArchived = () => {
+    setShowArchived(!showArchived);
+    // Query will automatically refetch with new showArchived value
   };
 
   // Count archived tasks for display

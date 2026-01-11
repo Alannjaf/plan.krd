@@ -7,6 +7,8 @@ import { signOut } from "@/lib/auth/actions";
 import { CommandPalette } from "@/components/search/command-palette";
 import { SearchButton } from "@/components/search/search-button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { LanguageSwitcher } from "@/components/i18n/language-switcher";
+import { OfflineBanner } from "@/components/offline/offline-banner";
 
 export default async function DashboardLayout({
   children,
@@ -21,6 +23,9 @@ export default async function DashboardLayout({
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Offline Banner */}
+      <OfflineBanner />
+      
       {/* Header */}
       <header className="border-b border-border/50 backdrop-blur-xl bg-background/80 sticky top-0 z-50">
         <div className="max-w-full mx-auto px-6 h-14 flex items-center justify-between">
@@ -33,6 +38,7 @@ export default async function DashboardLayout({
           <div className="flex items-center gap-4">
             <SearchButton />
             <NotificationBell />
+            <LanguageSwitcher />
             <span className="text-sm text-muted-foreground">
               {user.email}
             </span>

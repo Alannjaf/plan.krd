@@ -33,7 +33,9 @@ import { AttachmentList } from "./attachment-list";
 import { ActivityLog } from "./activity-log";
 import { CommentSection } from "./comment-section";
 import { CustomFields } from "./custom-fields";
-import { getTask, deleteTask, archiveTask, unarchiveTask, type TaskWithRelations } from "@/lib/actions/tasks";
+import { useTask } from "@/lib/query/queries/tasks";
+import { useDeleteTask, useArchiveTask, useUnarchiveTask } from "@/lib/query/mutations/tasks";
+import type { TaskWithRelations } from "@/lib/actions/tasks";
 import { Loader2, MessageSquare, History, Paperclip, Trash2, Archive, ArchiveRestore } from "lucide-react";
 
 interface TaskDetailModalProps {
@@ -43,6 +45,7 @@ interface TaskDetailModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onTaskUpdated?: () => void;
+  readOnly?: boolean;
 }
 
 export function TaskDetailModal({
@@ -52,30 +55,20 @@ export function TaskDetailModal({
   open,
   onOpenChange,
   onTaskUpdated,
+  readOnly = false,
 }: TaskDetailModalProps) {
-  const [task, setTask] = useState<TaskWithRelations | null>(null);
-  const [initialLoading, setInitialLoading] = useState(false);
+  const { data: task, isLoading: initialLoading } = useTask(taskId, boardId);
+  const deleteTaskMutation = useDeleteTask();
+  const archiveTaskMutation = useArchiveTask();
+  const unarchiveTaskMutation = useUnarchiveTask();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isArchiving, setIsArchiving] = useState(false);
   const hasChanges = useRef(false);
 
   useEffect(() => {
-    if (taskId && open) {
-      loadTask();
-    } else {
-      setTask(null);
+    if (!open) {
       hasChanges.current = false;
     }
-  }, [taskId, open]);
-
-  const loadTask = async () => {
-    if (!taskId) return;
-    setInitialLoading(true);
-    const data = await getTask(taskId);
-    setTask(data);
-    setInitialLoading(false);
-  };
+  }, [open]);
 
   // Handle modal close - sync with Kanban board
   const handleOpenChange = (newOpen: boolean) => {
@@ -92,45 +85,32 @@ export function TaskDetailModal({
 
   const handleDelete = async () => {
     if (!task) return;
-    setIsDeleting(true);
-    const result = await deleteTask(task.id);
-    if (result.success) {
+    try {
+      await deleteTaskMutation.mutateAsync(task.id);
       hasChanges.current = true;
       onTaskUpdated?.();
       onOpenChange(false);
+      setShowDeleteDialog(false);
+    } catch (error) {
+      console.error("Failed to delete task:", error);
     }
-    setIsDeleting(false);
-    setShowDeleteDialog(false);
   };
 
   const handleArchiveToggle = async () => {
     if (!task) return;
-    setIsArchiving(true);
-    
-    const result = task.archived
-      ? await unarchiveTask(task.id)
-      : await archiveTask(task.id);
-
-    if (result.success) {
-      // Update local state
-      setTask((prev) =>
-        prev
-          ? {
-              ...prev,
-              archived: !prev.archived,
-              archived_at: prev.archived ? null : new Date().toISOString(),
-            }
-          : prev
-      );
-      hasChanges.current = true;
-      
-      // If archiving, close the modal (task disappears from board)
-      if (!task.archived) {
+    try {
+      if (task.archived) {
+        await unarchiveTaskMutation.mutateAsync(task.id);
+      } else {
+        await archiveTaskMutation.mutateAsync(task.id);
+        // If archiving, close the modal (task disappears from board)
         onTaskUpdated?.();
         onOpenChange(false);
       }
+      hasChanges.current = true;
+    } catch (error) {
+      console.error("Failed to toggle archive:", error);
     }
-    setIsArchiving(false);
   };
 
   if (!taskId) return null;
@@ -150,8 +130,8 @@ export function TaskDetailModal({
             <DialogHeader className="p-6 pb-0 shrink-0">
               <TaskHeader
                 task={task}
-                setTask={setTask}
                 onChanged={markChanged}
+                readOnly={readOnly}
               />
             </DialogHeader>
 
@@ -164,16 +144,16 @@ export function TaskDetailModal({
                       {/* Description */}
                       <TaskDescription
                         task={task}
-                        setTask={setTask}
                         onChanged={markChanged}
+                        readOnly={readOnly}
                       />
 
                       {/* Subtasks */}
                       <SubtaskList
                         task={task}
                         workspaceId={workspaceId}
-                        setTask={setTask}
                         onChanged={markChanged}
+                        readOnly={readOnly}
                       />
 
                       {/* Tabs for Comments, Activity, Attachments */}
@@ -206,12 +186,12 @@ export function TaskDetailModal({
                           <CommentSection
                             taskId={task.id}
                             workspaceId={workspaceId}
+                            readOnly={readOnly}
                           />
                         </TabsContent>
                         <TabsContent value="attachments" className="mt-4">
                           <AttachmentList
                             task={task}
-                            setTask={setTask}
                             onChanged={markChanged}
                           />
                         </TabsContent>
@@ -230,71 +210,76 @@ export function TaskDetailModal({
                       {/* Assignees */}
                       <TaskAssignees
                         task={task}
-                        setTask={setTask}
                         workspaceId={workspaceId}
+                        boardId={boardId}
                         onChanged={markChanged}
+                        readOnly={readOnly}
                       />
 
                       {/* Labels */}
                       <TaskLabels
                         task={task}
-                        setTask={setTask}
                         boardId={boardId}
                         onChanged={markChanged}
+                        readOnly={readOnly}
                       />
 
                       {/* Dates */}
                       <TaskDates
                         task={task}
-                        setTask={setTask}
                         onChanged={markChanged}
+                        readOnly={readOnly}
                       />
 
                       {/* Priority */}
                       <TaskPriority
                         task={task}
-                        setTask={setTask}
                         onChanged={markChanged}
+                        readOnly={readOnly}
                       />
 
                       {/* Custom Fields */}
                       <CustomFields
                         task={task}
                         boardId={boardId}
-                        setTask={setTask}
                         onChanged={markChanged}
+                        readOnly={readOnly}
                       />
 
                       {/* Actions */}
-                      <Separator className="my-4" />
-                      <div className="space-y-2">
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                          onClick={handleArchiveToggle}
-                          disabled={isArchiving}
-                        >
-                          {task.archived ? (
-                            <>
-                              <ArchiveRestore className="mr-2 h-4 w-4" />
-                              {isArchiving ? "Restoring..." : "Restore from Archive"}
-                            </>
-                          ) : (
-                            <>
-                              <Archive className="mr-2 h-4 w-4" />
-                              {isArchiving ? "Archiving..." : "Archive Task"}
-                            </>
-                          )}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => setShowDeleteDialog(true)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete Task
-                        </Button>
-                      </div>
+                      {!readOnly && (
+                        <>
+                          <Separator className="my-4" />
+                          <div className="space-y-2">
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start"
+                              onClick={handleArchiveToggle}
+                              disabled={archiveTaskMutation.isPending || unarchiveTaskMutation.isPending}
+                            >
+                              {task.archived ? (
+                                <>
+                                  <ArchiveRestore className="mr-2 h-4 w-4" />
+                                  {unarchiveTaskMutation.isPending ? "Restoring..." : "Restore from Archive"}
+                                </>
+                              ) : (
+                                <>
+                                  <Archive className="mr-2 h-4 w-4" />
+                                  {archiveTaskMutation.isPending ? "Archiving..." : "Archive Task"}
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => setShowDeleteDialog(true)}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete Task
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </ScrollArea>
                 </div>
@@ -318,13 +303,13 @@ export function TaskDetailModal({
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogCancel disabled={deleteTaskMutation.isPending}>Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleDelete}
-                disabled={isDeleting}
+                disabled={deleteTaskMutation.isPending}
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
-                {isDeleting ? "Deleting..." : "Delete"}
+                {deleteTaskMutation.isPending ? "Deleting..." : "Delete"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

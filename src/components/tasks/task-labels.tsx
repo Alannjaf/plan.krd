@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type Dispatch, type SetStateAction } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -17,12 +17,13 @@ import {
   type Label,
 } from "@/lib/actions/labels";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query/queries/tasks";
 import { Tags, Plus, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TaskLabelsProps {
   task: TaskWithRelations;
-  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   boardId: string;
   onChanged: () => void;
 }
@@ -40,7 +41,6 @@ const defaultColors = [
 
 export function TaskLabels({
   task,
-  setTask,
   boardId,
   onChanged,
 }: TaskLabelsProps) {
@@ -50,6 +50,7 @@ export function TaskLabels({
   const [isCreating, setIsCreating] = useState(false);
   const [newLabelName, setNewLabelName] = useState("");
   const [newLabelColor, setNewLabelColor] = useState(defaultColors[0]);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isOpen) {
@@ -71,48 +72,21 @@ export function TaskLabels({
 
   const handleToggleLabel = async (label: Label) => {
     const isAssigned = assignedLabelIds.includes(label.id);
-    const oldLabels = [...labels];
+    onChanged();
 
     if (isAssigned) {
-      // Optimistic remove
-      setTask((prev) =>
-        prev
-          ? {
-              ...prev,
-              labels: prev.labels?.filter((l) => l.label_id !== label.id),
-            }
-          : prev
-      );
-      onChanged();
-
       const result = await removeLabelFromTask(task.id, label.id);
-      if (!result.success) {
-        setTask((prev) => (prev ? { ...prev, labels: oldLabels } : prev));
+      if (result.success) {
+        // Invalidate queries to refetch updated task data
+        queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
       }
     } else {
-      // Optimistic add
-      const newLabel = {
-        id: `temp-${Date.now()}`,
-        label_id: label.id,
-        labels: {
-          id: label.id,
-          name: label.name,
-          color: label.color,
-        },
-      };
-      setTask((prev) =>
-        prev
-          ? {
-              ...prev,
-              labels: [...(prev.labels || []), newLabel],
-            }
-          : prev
-      );
-      onChanged();
-
       const result = await addLabelToTask(task.id, label.id);
-      if (!result.success) {
-        setTask((prev) => (prev ? { ...prev, labels: oldLabels } : prev));
+      if (result.success) {
+        // Invalidate queries to refetch updated task data
+        queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
       }
     }
   };
@@ -122,27 +96,14 @@ export function TaskLabels({
 
     const result = await createLabel(boardId, newLabelName.trim(), newLabelColor);
     if (result.success && result.label) {
-      // Add the new label to the task
-      const newLabel = {
-        id: `temp-${Date.now()}`,
-        label_id: result.label.id,
-        labels: {
-          id: result.label.id,
-          name: result.label.name,
-          color: result.label.color,
-        },
-      };
-      setTask((prev) =>
-        prev
-          ? {
-              ...prev,
-              labels: [...(prev.labels || []), newLabel],
-            }
-          : prev
-      );
       onChanged();
 
-      await addLabelToTask(task.id, result.label.id);
+      const addResult = await addLabelToTask(task.id, result.label.id);
+      if (addResult.success) {
+        // Invalidate queries to refetch updated task data
+        queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
+      }
       loadLabels();
     }
     setNewLabelName("");

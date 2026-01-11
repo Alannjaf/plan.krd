@@ -1,82 +1,54 @@
 "use client";
 
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CheckCircle2 } from "lucide-react";
-import { updateTask, completeTask, uncompleteTask, type TaskWithRelations } from "@/lib/actions/tasks";
+import { type TaskWithRelations } from "@/lib/actions/tasks";
+import { useUpdateTask, useCompleteTask, useUncompleteTask } from "@/lib/query/mutations/tasks";
 import { cn } from "@/lib/utils";
 
 interface TaskHeaderProps {
   task: TaskWithRelations;
-  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   onChanged: () => void;
 }
 
-export function TaskHeader({ task, setTask, onChanged }: TaskHeaderProps) {
+export function TaskHeader({ task, onChanged }: TaskHeaderProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
-  const [isCompleting, setIsCompleting] = useState(false);
+  const updateTaskMutation = useUpdateTask();
+  const completeTaskMutation = useCompleteTask();
+  const uncompleteTaskMutation = useUncompleteTask();
 
-  const handleSaveTitle = async () => {
+  const handleSaveTitle = () => {
     if (!title.trim() || title === task.title) {
       setIsEditing(false);
       return;
     }
 
-    const oldTitle = task.title;
     const newTitle = title.trim();
-
-    // Optimistic update
-    setTask((prev) => (prev ? { ...prev, title: newTitle } : prev));
-    onChanged();
     setIsEditing(false);
+    onChanged();
 
-    // Persist to database
-    const result = await updateTask(task.id, { title: newTitle });
-
-    // Rollback on error
-    if (!result.success) {
-      setTask((prev) => (prev ? { ...prev, title: oldTitle } : prev));
-      setTitle(oldTitle);
-    }
+    updateTaskMutation.mutate(
+      { taskId: task.id, updates: { title: newTitle } },
+      {
+        onError: () => {
+          // Rollback on error
+          setTitle(task.title);
+        },
+      }
+    );
   };
 
-  const handleCompletionToggle = async () => {
-    setIsCompleting(true);
-    const wasCompleted = task.completed;
-    const now = new Date().toISOString();
-
-    // Optimistic update
-    setTask((prev) =>
-      prev
-        ? {
-            ...prev,
-            completed: !wasCompleted,
-            completed_at: !wasCompleted ? now : null,
-          }
-        : prev
-    );
+  const handleCompletionToggle = () => {
     onChanged();
 
-    // Persist to database
-    const result = wasCompleted
-      ? await uncompleteTask(task.id)
-      : await completeTask(task.id);
-
-    // Rollback on error
-    if (!result.success) {
-      setTask((prev) =>
-        prev
-          ? {
-              ...prev,
-              completed: wasCompleted,
-              completed_at: wasCompleted ? now : null,
-            }
-          : prev
-      );
+    if (task.completed) {
+      uncompleteTaskMutation.mutate(task.id);
+    } else {
+      completeTaskMutation.mutate(task.id);
     }
-    setIsCompleting(false);
   };
 
   return (
@@ -85,7 +57,7 @@ export function TaskHeader({ task, setTask, onChanged }: TaskHeaderProps) {
         <Checkbox
           checked={task.completed}
           onCheckedChange={handleCompletionToggle}
-          disabled={isCompleting}
+          disabled={completeTaskMutation.isPending || uncompleteTaskMutation.isPending}
           className="h-5 w-5 shrink-0"
         />
         {task.completed && (

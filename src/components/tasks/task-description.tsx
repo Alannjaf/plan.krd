@@ -1,26 +1,25 @@
 "use client";
 
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Button } from "@/components/ui/button";
-import { updateTask, type TaskWithRelations } from "@/lib/actions/tasks";
+import { type TaskWithRelations } from "@/lib/actions/tasks";
+import { useUpdateTask } from "@/lib/query/mutations/tasks";
 import { AlignLeft, Check, X } from "lucide-react";
 
 interface TaskDescriptionProps {
   task: TaskWithRelations;
-  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   onChanged: () => void;
 }
 
 export function TaskDescription({
   task,
-  setTask,
   onChanged,
 }: TaskDescriptionProps) {
   const [isEditing, setIsEditing] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const updateTaskMutation = useUpdateTask();
 
   const editor = useEditor({
     extensions: [
@@ -39,29 +38,25 @@ export function TaskDescription({
     },
   });
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!editor) return;
-    setIsSaving(true);
 
     const html = editor.getHTML();
     const newDescription = html === "<p></p>" ? null : html;
     const oldDescription = task.description;
 
-    // Optimistic update
-    setTask((prev) => (prev ? { ...prev, description: newDescription } : prev));
     onChanged();
     setIsEditing(false);
 
-    // Persist to database
-    const result = await updateTask(task.id, { description: newDescription });
-
-    // Rollback on error
-    if (!result.success) {
-      setTask((prev) => (prev ? { ...prev, description: oldDescription } : prev));
-      editor.commands.setContent(oldDescription || "");
-    }
-
-    setIsSaving(false);
+    updateTaskMutation.mutate(
+      { taskId: task.id, updates: { description: newDescription } },
+      {
+        onError: () => {
+          // Rollback on error
+          editor.commands.setContent(oldDescription || "");
+        },
+      }
+    );
   };
 
   const handleCancel = () => {
@@ -80,9 +75,9 @@ export function TaskDescription({
         <div className="space-y-2">
           <EditorContent editor={editor} />
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={handleSave} disabled={isSaving}>
+            <Button size="sm" onClick={handleSave} disabled={updateTaskMutation.isPending}>
               <Check className="h-4 w-4 mr-1" />
-              {isSaving ? "Saving..." : "Save"}
+              {updateTaskMutation.isPending ? "Saving..." : "Save"}
             </Button>
             <Button size="sm" variant="ghost" onClick={handleCancel}>
               <X className="h-4 w-4 mr-1" />

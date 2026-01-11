@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type Dispatch, type SetStateAction } from "react";
+import { useState, useEffect } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { addAssignee, removeAssignee, getWorkspaceMembers } from "@/lib/actions/assignees";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/query/queries/tasks";
 import { Users, Plus, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,20 +30,21 @@ type WorkspaceMember = {
 
 interface TaskAssigneesProps {
   task: TaskWithRelations;
-  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   workspaceId: string;
+  boardId: string;
   onChanged: () => void;
 }
 
 export function TaskAssignees({
   task,
-  setTask,
   workspaceId,
+  boardId,
   onChanged,
 }: TaskAssigneesProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [search, setSearch] = useState("");
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (isOpen) {
@@ -67,49 +70,21 @@ export function TaskAssignees({
 
   const handleToggleAssignee = async (member: WorkspaceMember) => {
     const isAssigned = assignedUserIds.includes(member.user_id);
-    const oldAssignees = [...assignees];
+    onChanged();
 
     if (isAssigned) {
-      // Optimistic remove
-      setTask((prev) =>
-        prev
-          ? {
-              ...prev,
-              assignees: prev.assignees?.filter((a) => a.user_id !== member.user_id),
-            }
-          : prev
-      );
-      onChanged();
-
       const result = await removeAssignee(task.id, member.user_id);
-      if (!result.success) {
-        setTask((prev) => (prev ? { ...prev, assignees: oldAssignees } : prev));
+      if (result.success) {
+        // Invalidate queries to refetch updated task data
+        queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
       }
     } else {
-      // Optimistic add
-      const newAssignee = {
-        id: `temp-${Date.now()}`,
-        user_id: member.user_id,
-        profiles: member.profiles || {
-          id: member.user_id,
-          email: null,
-          full_name: null,
-          avatar_url: null,
-        },
-      };
-      setTask((prev) =>
-        prev
-          ? {
-              ...prev,
-              assignees: [...(prev.assignees || []), newAssignee],
-            }
-          : prev
-      );
-      onChanged();
-
       const result = await addAssignee(task.id, member.user_id);
-      if (!result.success) {
-        setTask((prev) => (prev ? { ...prev, assignees: oldAssignees } : prev));
+      if (result.success) {
+        // Invalidate queries to refetch updated task data
+        queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+        queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
       }
     }
   };

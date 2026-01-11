@@ -12,7 +12,9 @@ import { CreateListDialog } from "./create-list-dialog";
 import { TaskDetailModal } from "@/components/tasks/task-detail-modal";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import { reorderTasksInList, getTask, type TaskWithRelations } from "@/lib/actions/tasks";
+import { useReorderTasksInList } from "@/lib/query/mutations/tasks";
+import { useTask } from "@/lib/query/queries/tasks";
+import type { TaskWithRelations } from "@/lib/actions/tasks";
 import type { List } from "@/lib/actions/lists";
 
 interface KanbanBoardProps {
@@ -30,6 +32,7 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
   const [createTaskListId, setCreateTaskListId] = useState<string | null>(null);
   const [showCreateList, setShowCreateList] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const reorderTasksMutation = useReorderTasksInList();
 
   // Sync localTasks when tasks prop changes (e.g., when toggling archived)
   useEffect(() => {
@@ -139,7 +142,13 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
       const filteredIds = uniqueIds.filter((id) => id !== taskId);
       filteredIds.splice(destination.index, 0, taskId);
 
-      await reorderTasksInList(destListId, filteredIds);
+      try {
+        await reorderTasksMutation.mutateAsync({ listId: destListId, taskIds: filteredIds });
+      } catch (error) {
+        console.error("Failed to reorder tasks:", error);
+        // Revert optimistic update on error
+        setLocalTasks(tasks);
+      }
     },
     [localTasks]
   );
@@ -157,26 +166,10 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
     setCreateTaskListId(null);
   };
 
-  const handleTaskUpdated = async () => {
-    // Refetch the updated task and update local state
-    // Use the selectedTaskId at the time the function is called
-    const taskId = selectedTaskId;
-    if (taskId) {
-      const updatedTask = await getTask(taskId);
-      if (updatedTask) {
-        // If task is archived, remove it from the board
-        if (updatedTask.archived) {
-          setLocalTasks((prev) => prev.filter((t) => t.id !== taskId));
-        } else {
-          setLocalTasks((prev) =>
-            prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
-          );
-        }
-      } else {
-        // Task was deleted, remove it from the list
-        setLocalTasks((prev) => prev.filter((t) => t.id !== taskId));
-      }
-    }
+  const handleTaskUpdated = () => {
+    // The query cache will be invalidated by the mutations, so we just need to refetch
+    // The component will receive updated tasks via props when the query refetches
+    setLocalTasks(tasks);
   };
 
   const handleListCreated = (list: List) => {
@@ -205,7 +198,7 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
               className="w-full h-12 border-dashed border-border/50 text-muted-foreground hover:text-foreground hover:border-primary/50"
               onClick={() => setShowCreateList(true)}
             >
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="h-4 w-4 mr-2 rtl:ml-2 rtl:mr-0" />
               Add another list
             </Button>
           </div>

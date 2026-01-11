@@ -15,6 +15,7 @@ interface KanbanColumnProps {
   tasks: TaskWithRelations[];
   onAddTask: (listId: string) => void;
   onTaskClick?: (taskId: string) => void;
+  readOnly?: boolean;
 }
 
 // Priority order for sorting
@@ -30,6 +31,7 @@ export function KanbanColumn({
   tasks,
   onAddTask,
   onTaskClick,
+  readOnly = false,
 }: KanbanColumnProps) {
   // Per-column filter and sort state
   const [sortBy, setSortBy] = useState<SortOption>("position");
@@ -139,14 +141,15 @@ export function KanbanColumn({
       </div>
 
       {/* Droppable Area */}
-      <Droppable droppableId={list.id} type="TASK">
+      <Droppable droppableId={list.id} type="TASK" isDropDisabled={readOnly}>
         {(provided, snapshot) => (
           <div
             ref={provided.innerRef}
             {...provided.droppableProps}
             className={cn(
               "flex-1 p-2 min-h-[200px] transition-colors duration-200 overflow-y-auto",
-              snapshot.isDraggingOver && "bg-primary/5"
+              snapshot.isDraggingOver && "bg-primary/5",
+              readOnly && "cursor-default"
             )}
           >
             {sortedTasks.map((task, index) => (
@@ -183,16 +186,18 @@ export function KanbanColumn({
       </Droppable>
 
       {/* Add Task Button */}
-      <div className="p-2 border-t border-border/50">
-        <Button
-          variant="ghost"
-          className="w-full justify-start text-muted-foreground hover:text-foreground"
-          onClick={() => onAddTask(list.id)}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add a task
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="p-2 border-t border-border/50">
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-muted-foreground hover:text-foreground"
+            onClick={() => onAddTask(list.id)}
+          >
+            <Plus className="h-4 w-4 mr-2 rtl:ml-2 rtl:mr-0" />
+            Add a task
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

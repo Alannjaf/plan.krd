@@ -13,6 +13,8 @@ export type Board = {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+  public_token: string | null;
+  public_enabled: boolean;
 };
 
 export async function getBoards(workspaceId: string, includeArchived: boolean = false): Promise<Board[]> {
@@ -206,4 +208,132 @@ export async function unarchiveBoard(
 
   revalidatePath(`/${board.workspace_id}`);
   return { success: true };
+}
+
+/**
+ * Generate a public token for a board to enable public read-only access
+ */
+export async function generatePublicToken(
+  boardId: string
+): Promise<{ success: boolean; token?: string; error?: string }> {
+  const supabase = await createClient();
+
+  // Verify board exists and user has access
+  const { data: board, error: fetchError } = await supabase
+    .from("boards")
+    .select("workspace_id")
+    .eq("id", boardId)
+    .single();
+
+  if (fetchError) {
+    return { success: false, error: fetchError.message };
+  }
+
+  // Generate a new UUID token
+  const publicToken = crypto.randomUUID();
+
+  const { data, error } = await supabase
+    .from("boards")
+    .update({
+      public_token: publicToken,
+      public_enabled: true,
+    })
+    .eq("id", boardId)
+    .select("public_token")
+    .single();
+
+  if (error) {
+    console.error("Error generating public token:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/${board.workspace_id}/${boardId}`);
+  return { success: true, token: data.public_token };
+}
+
+/**
+ * Revoke public access by removing the public token
+ */
+export async function revokePublicToken(
+  boardId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  // Verify board exists and user has access
+  const { data: board, error: fetchError } = await supabase
+    .from("boards")
+    .select("workspace_id")
+    .eq("id", boardId)
+    .single();
+
+  if (fetchError) {
+    return { success: false, error: fetchError.message };
+  }
+
+  const { error } = await supabase
+    .from("boards")
+    .update({
+      public_token: null,
+      public_enabled: false,
+    })
+    .eq("id", boardId);
+
+  if (error) {
+    console.error("Error revoking public token:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/${board.workspace_id}/${boardId}`);
+  return { success: true };
+}
+
+/**
+ * Fetch a board by its public token (for public read-only access)
+ */
+export async function getPublicBoard(
+  token: string
+): Promise<{ success: boolean; board?: Board; error?: string }> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("boards")
+    .select("*")
+    .eq("public_token", token)
+    .eq("public_enabled", true)
+    .single();
+
+  if (error) {
+    console.error("Error fetching public board:", error);
+    return { success: false, error: error.message };
+  }
+
+  if (!data) {
+    return { success: false, error: "Board not found or public access is disabled" };
+  }
+
+  return { success: true, board: data };
+}
+
+/**
+ * Check if a board has public access enabled
+ */
+export async function isPublicBoard(
+  boardId: string
+): Promise<{ success: boolean; isPublic?: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("boards")
+    .select("public_enabled, public_token")
+    .eq("id", boardId)
+    .single();
+
+  if (error) {
+    console.error("Error checking public board status:", error);
+    return { success: false, error: error.message };
+  }
+
+  const isPublic = data.public_enabled && data.public_token !== null;
+
+  return { success: true, isPublic };
 }

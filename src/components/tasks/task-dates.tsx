@@ -1,6 +1,5 @@
 "use client";
 
-import { type Dispatch, type SetStateAction } from "react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -9,35 +8,30 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { updateTask, type TaskWithRelations } from "@/lib/actions/tasks";
+import { type TaskWithRelations } from "@/lib/actions/tasks";
+import { useUpdateTask } from "@/lib/query/mutations/tasks";
 import { CalendarIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TaskDatesProps {
   task: TaskWithRelations;
-  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   onChanged: () => void;
 }
 
-export function TaskDates({ task, setTask, onChanged }: TaskDatesProps) {
-  const handleDateChange = async (
+export function TaskDates({ task, onChanged }: TaskDatesProps) {
+  const updateTaskMutation = useUpdateTask();
+
+  const handleDateChange = (
     field: "start_date" | "due_date",
     date: Date | undefined
   ) => {
     const newValue = date ? format(date, "yyyy-MM-dd") : null;
-    const oldValue = task[field];
-
-    // Optimistic update
-    setTask((prev) => (prev ? { ...prev, [field]: newValue } : prev));
     onChanged();
 
-    // Persist to database
-    const result = await updateTask(task.id, { [field]: newValue });
-
-    // Rollback on error
-    if (!result.success) {
-      setTask((prev) => (prev ? { ...prev, [field]: oldValue } : prev));
-    }
+    updateTaskMutation.mutate({
+      taskId: task.id,
+      updates: { [field]: newValue },
+    });
   };
 
   const parsedStartDate = task.start_date ? new Date(task.start_date) : undefined;

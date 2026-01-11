@@ -1,6 +1,5 @@
 "use client";
 
-import { type Dispatch, type SetStateAction } from "react";
 import {
   Select,
   SelectContent,
@@ -8,7 +7,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { updateTask, type TaskWithRelations } from "@/lib/actions/tasks";
+import { type TaskWithRelations } from "@/lib/actions/tasks";
+import { useUpdateTask } from "@/lib/query/mutations/tasks";
 import { Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +16,6 @@ type Priority = "low" | "medium" | "high" | "urgent" | null;
 
 interface TaskPriorityProps {
   task: TaskWithRelations;
-  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   onChanged: () => void;
 }
 
@@ -27,22 +26,17 @@ const priorities = [
   { value: "low", label: "Low", color: "text-blue-500" },
 ] as const;
 
-export function TaskPriority({ task, setTask, onChanged }: TaskPriorityProps) {
-  const handleChange = async (value: string) => {
-    const newPriority: Priority = value === "none" ? null : (value as Priority);
-    const oldPriority = task.priority;
+export function TaskPriority({ task, onChanged }: TaskPriorityProps) {
+  const updateTaskMutation = useUpdateTask();
 
-    // Optimistic update
-    setTask((prev) => (prev ? { ...prev, priority: newPriority } : prev));
+  const handleChange = (value: string) => {
+    const newPriority: Priority = value === "none" ? null : (value as Priority);
     onChanged();
 
-    // Persist to database
-    const result = await updateTask(task.id, { priority: newPriority });
-
-    // Rollback on error
-    if (!result.success) {
-      setTask((prev) => (prev ? { ...prev, priority: oldPriority } : prev));
-    }
+    updateTaskMutation.mutate({
+      taskId: task.id,
+      updates: { priority: newPriority },
+    });
   };
 
   const currentPriority = priorities.find((p) => p.value === task.priority);

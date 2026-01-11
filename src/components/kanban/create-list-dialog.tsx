@@ -12,7 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createList, type List } from "@/lib/actions/lists";
+import { useCreateList } from "@/lib/query/mutations/lists";
+import type { List } from "@/lib/actions/lists";
 
 interface CreateListDialogProps {
   open: boolean;
@@ -28,20 +29,22 @@ export function CreateListDialog({
   onListCreated,
 }: CreateListDialogProps) {
   const [name, setName] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const createListMutation = useCreateList();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !boardId) return;
 
-    setIsLoading(true);
-    const result = await createList(boardId, name.trim());
-    setIsLoading(false);
-
-    if (result.success && result.list) {
-      onListCreated(result.list);
+    try {
+      const list = await createListMutation.mutateAsync({
+        boardId,
+        name: name.trim(),
+      });
+      onListCreated(list);
       setName("");
       onOpenChange(false);
+    } catch (error) {
+      console.error("Failed to create list:", error);
     }
   };
 
@@ -75,8 +78,8 @@ export function CreateListDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim() || isLoading}>
-              {isLoading ? "Creating..." : "Create List"}
+            <Button type="submit" disabled={!name.trim() || createListMutation.isPending}>
+              {createListMutation.isPending ? "Creating..." : "Create List"}
             </Button>
           </DialogFooter>
         </form>
