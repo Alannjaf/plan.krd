@@ -9,7 +9,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Calendar, Flag, CheckSquare, MessageSquare, Paperclip } from "lucide-react";
+import { Calendar, Flag, CheckSquare, MessageSquare, Paperclip, Archive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
 
@@ -58,9 +58,18 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
             "p-3 mb-2 cursor-pointer transition-all duration-200",
             "bg-card hover:bg-accent/50 border-border/50",
             "hover:border-primary/30 hover:shadow-md",
-            snapshot.isDragging && "shadow-xl border-primary/50 rotate-2"
+            snapshot.isDragging && "shadow-xl border-primary/50 rotate-2",
+            task.archived && "opacity-60 border-dashed bg-muted/30"
           )}
         >
+          {/* Archived Badge */}
+          {task.archived && (
+            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2 bg-muted/50 rounded px-2 py-1 w-fit">
+              <Archive className="w-3 h-3" />
+              Archived
+            </div>
+          )}
+
           {/* Labels */}
           {task.labels && task.labels.length > 0 && (
             <div className="flex flex-wrap gap-1 mb-2">

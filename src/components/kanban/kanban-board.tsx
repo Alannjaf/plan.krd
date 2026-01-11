@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   DragDropContext,
   type DropResult,
@@ -20,15 +20,21 @@ interface KanbanBoardProps {
   workspaceId: string;
   lists: List[];
   tasks: TaskWithRelations[];
+  showArchived?: boolean;
 }
 
-export function KanbanBoard({ boardId, workspaceId, lists, tasks }: KanbanBoardProps) {
+export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived = false }: KanbanBoardProps) {
   const [localLists] = useState(lists);
   const [localTasks, setLocalTasks] = useState(tasks);
   const [isDragging, setIsDragging] = useState(false);
   const [createTaskListId, setCreateTaskListId] = useState<string | null>(null);
   const [showCreateList, setShowCreateList] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  // Sync localTasks when tasks prop changes (e.g., when toggling archived)
+  useEffect(() => {
+    setLocalTasks(tasks);
+  }, [tasks]);
 
   // Group tasks by list
   const tasksByList = localTasks.reduce(
@@ -158,9 +164,14 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks }: KanbanBoardP
     if (taskId) {
       const updatedTask = await getTask(taskId);
       if (updatedTask) {
-        setLocalTasks((prev) =>
-          prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
-        );
+        // If task is archived, remove it from the board
+        if (updatedTask.archived) {
+          setLocalTasks((prev) => prev.filter((t) => t.id !== taskId));
+        } else {
+          setLocalTasks((prev) =>
+            prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+          );
+        }
       } else {
         // Task was deleted, remove it from the list
         setLocalTasks((prev) => prev.filter((t) => t.id !== taskId));

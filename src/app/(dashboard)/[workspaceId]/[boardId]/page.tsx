@@ -3,10 +3,7 @@ import { getBoard } from "@/lib/actions/boards";
 import { getLists } from "@/lib/actions/lists";
 import { getTasksWithRelations } from "@/lib/actions/tasks";
 import { notFound } from "next/navigation";
-import { KanbanBoard } from "@/components/kanban/kanban-board";
-import { BoardHeaderActions } from "@/components/boards/board-header-actions";
-import { ArrowLeft } from "lucide-react";
-import Link from "next/link";
+import { BoardContent } from "@/components/boards/board-content";
 
 interface BoardPageProps {
   params: Promise<{ workspaceId: string; boardId: string }>;
@@ -27,36 +24,11 @@ export default async function BoardPage({ params }: BoardPageProps) {
   }
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex flex-col">
-      {/* Board Header */}
-      <div className="border-b border-border/50 bg-background/80 backdrop-blur-xl px-6 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href={`/${workspaceId}`}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>{workspace.name}</span>
-              <span>/</span>
-            </div>
-            <h1 className="font-semibold">{board.name}</h1>
-          </div>
-          <BoardHeaderActions board={board} workspaceId={workspaceId} />
-        </div>
-      </div>
-
-      {/* Kanban Board */}
-      <div className="flex-1 overflow-hidden bg-secondary/10 p-4">
-        <KanbanBoard
-          boardId={boardId}
-          workspaceId={workspaceId}
-          lists={lists}
-          tasks={tasks}
-        />
-      </div>
-    </div>
+    <BoardContent
+      workspace={{ id: workspace.id, name: workspace.name }}
+      board={board}
+      lists={lists}
+      initialTasks={tasks}
+    />
   );
 }
