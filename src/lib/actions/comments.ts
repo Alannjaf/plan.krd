@@ -2,6 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { logActivity } from "./activities";
+import { createNotification } from "./notifications";
+import { extractMentions } from "@/lib/utils/mentions";
 
 export type Comment = {
   id: string;
@@ -94,6 +96,44 @@ export async function createComment(
 
   // Log activity
   await logActivity(taskId, "comment_added", {});
+
+  // Create notifications for mentions
+  const mentions = extractMentions(content);
+  if (mentions.length > 0) {
+    // Get task details for notification
+    const { data: task } = await supabase
+      .from("tasks")
+      .select("title, lists(boards(id, workspace_id))")
+      .eq("id", taskId)
+      .single();
+
+    if (task) {
+      const board = (task.lists as { boards: { id: string; workspace_id: string } })?.boards;
+
+      // Look up mentioned users by email or full_name
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, email, full_name")
+        .or(mentions.map((m) => `email.ilike.${m},full_name.ilike.${m}`).join(","));
+
+      if (profiles) {
+        for (const profile of profiles) {
+          if (profile.id !== user.id) {
+            await createNotification({
+              userId: profile.id,
+              type: "mention",
+              title: "You were mentioned in a comment",
+              message: content.slice(0, 100) + (content.length > 100 ? "..." : ""),
+              taskId,
+              workspaceId: board?.workspace_id,
+              boardId: board?.id,
+              actorId: user.id,
+            });
+          }
+        }
+      }
+    }
+  }
 
   return { success: true, comment: data };
 }

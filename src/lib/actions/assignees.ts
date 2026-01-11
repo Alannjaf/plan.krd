@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createNotification } from "./notifications";
 
 export type Assignee = {
   id: string;
@@ -51,6 +52,30 @@ export async function addAssignee(
   if (error) {
     console.error("Error adding assignee:", error);
     return { success: false, error: error.message };
+  }
+
+  // Create notification for the assigned user (if not self-assigning)
+  if (user && userId !== user.id) {
+    // Get task details for notification
+    const { data: task } = await supabase
+      .from("tasks")
+      .select("title, lists(boards(id, workspace_id))")
+      .eq("id", taskId)
+      .single();
+
+    if (task) {
+      const board = (task.lists as { boards: { id: string; workspace_id: string } })?.boards;
+      await createNotification({
+        userId,
+        type: "assignment",
+        title: "You were assigned to a task",
+        message: task.title,
+        taskId,
+        workspaceId: board?.workspace_id,
+        boardId: board?.id,
+        actorId: user.id,
+      });
+    }
   }
 
   return { success: true };

@@ -4,6 +4,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Sparkles, LogOut } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
+import { CommandPalette } from "@/components/search/command-palette";
+import { SearchButton } from "@/components/search/search-button";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 export default async function DashboardLayout({
   children,
@@ -28,6 +31,8 @@ export default async function DashboardLayout({
             <span className="text-lg font-bold tracking-tight">Plan.krd</span>
           </Link>
           <div className="flex items-center gap-4">
+            <SearchButton />
+            <NotificationBell />
             <span className="text-sm text-muted-foreground">
               {user.email}
             </span>
@@ -40,6 +45,9 @@ export default async function DashboardLayout({
           </div>
         </div>
       </header>
+
+      {/* Command Palette */}
+      <CommandPalette />
 
       {/* Main Content */}
       <main>{children}</main>

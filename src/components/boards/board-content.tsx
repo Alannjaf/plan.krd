@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { KanbanBoard } from "@/components/kanban/kanban-board";
+import { ListView } from "@/components/views/list-view";
+import { CalendarView } from "@/components/views/calendar-view";
+import { WorkloadView } from "@/components/views/workload-view";
 import { BoardHeaderActions } from "./board-header-actions";
+import { ViewSwitcher, type ViewType } from "./view-switcher";
+import { BoardFilter, filterTasks, type FilterState } from "./board-filter";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Archive, Eye, EyeOff } from "lucide-react";
 import { getTasksWithRelations, type TaskWithRelations } from "@/lib/actions/tasks";
@@ -26,6 +31,17 @@ export function BoardContent({
   const [tasks, setTasks] = useState(initialTasks);
   const [showArchived, setShowArchived] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [currentView, setCurrentView] = useState<ViewType>("kanban");
+  const [filters, setFilters] = useState<FilterState>({
+    assigneeId: null,
+    labelId: null,
+    priority: null,
+    dueDateFrom: null,
+    dueDateTo: null,
+  });
+
+  // Apply filters to tasks
+  const filteredTasks = filterTasks(tasks, filters);
 
   const handleToggleArchived = async () => {
     setIsLoading(true);
@@ -61,7 +77,18 @@ export function BoardContent({
             </div>
             <h1 className="font-semibold">{board.name}</h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <ViewSwitcher
+              currentView={currentView}
+              onViewChange={setCurrentView}
+            />
+            <div className="w-px h-6 bg-border" />
+            <BoardFilter
+              boardId={board.id}
+              workspaceId={workspace.id}
+              filters={filters}
+              onFiltersChange={setFilters}
+            />
             <Button
               variant={showArchived ? "secondary" : "ghost"}
               size="sm"
@@ -92,15 +119,39 @@ export function BoardContent({
         </div>
       </div>
 
-      {/* Kanban Board */}
+      {/* Board Content */}
       <div className="flex-1 overflow-hidden bg-secondary/10 p-4">
-        <KanbanBoard
-          boardId={board.id}
-          workspaceId={workspace.id}
-          lists={lists}
-          tasks={tasks}
-          showArchived={showArchived}
-        />
+        {currentView === "kanban" && (
+          <KanbanBoard
+            boardId={board.id}
+            workspaceId={workspace.id}
+            lists={lists}
+            tasks={filteredTasks}
+            showArchived={showArchived}
+          />
+        )}
+        {currentView === "list" && (
+          <ListView
+            tasks={filteredTasks}
+            lists={lists}
+            workspaceId={workspace.id}
+            boardId={board.id}
+          />
+        )}
+        {currentView === "calendar" && (
+          <CalendarView
+            tasks={filteredTasks}
+            workspaceId={workspace.id}
+            boardId={board.id}
+          />
+        )}
+        {currentView === "workload" && (
+          <WorkloadView
+            tasks={filteredTasks}
+            workspaceId={workspace.id}
+            boardId={board.id}
+          />
+        )}
       </div>
     </div>
   );

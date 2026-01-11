@@ -9,18 +9,26 @@ export type Board = {
   name: string;
   description: string | null;
   position: number;
+  archived: boolean;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
-export async function getBoards(workspaceId: string): Promise<Board[]> {
+export async function getBoards(workspaceId: string, includeArchived: boolean = false): Promise<Board[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("boards")
     .select("*")
     .eq("workspace_id", workspaceId)
     .order("position", { ascending: true });
+
+  if (!includeArchived) {
+    query = query.eq("archived", false);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error("Error fetching boards:", error);
@@ -135,6 +143,64 @@ export async function deleteBoard(
 
   if (error) {
     console.error("Error deleting board:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/${board.workspace_id}`);
+  return { success: true };
+}
+
+export async function archiveBoard(
+  boardId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { data: board, error: fetchError } = await supabase
+    .from("boards")
+    .select("workspace_id")
+    .eq("id", boardId)
+    .single();
+
+  if (fetchError) {
+    return { success: false, error: fetchError.message };
+  }
+
+  const { error } = await supabase
+    .from("boards")
+    .update({ archived: true, archived_at: new Date().toISOString() })
+    .eq("id", boardId);
+
+  if (error) {
+    console.error("Error archiving board:", error);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/${board.workspace_id}`);
+  return { success: true };
+}
+
+export async function unarchiveBoard(
+  boardId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { data: board, error: fetchError } = await supabase
+    .from("boards")
+    .select("workspace_id")
+    .eq("id", boardId)
+    .single();
+
+  if (fetchError) {
+    return { success: false, error: fetchError.message };
+  }
+
+  const { error } = await supabase
+    .from("boards")
+    .update({ archived: false, archived_at: null })
+    .eq("id", boardId);
+
+  if (error) {
+    console.error("Error unarchiving board:", error);
     return { success: false, error: error.message };
   }
 

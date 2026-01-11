@@ -1,11 +1,10 @@
 import { getWorkspace } from "@/lib/actions/workspaces";
 import { getBoards } from "@/lib/actions/boards";
 import { notFound } from "next/navigation";
-import { BoardCard } from "@/components/boards/board-card";
 import { CreateBoardDialog } from "@/components/boards/create-board-dialog";
-import { LayoutDashboard, ArrowLeft } from "lucide-react";
+import { WorkspaceBoards } from "@/components/boards/workspace-boards";
+import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
 
 interface WorkspacePageProps {
   params: Promise<{ workspaceId: string }>;
@@ -45,29 +44,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
         <CreateBoardDialog workspaceId={workspaceId} />
       </div>
 
-      {boards.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 px-4 border border-dashed border-border/50 rounded-xl">
-          <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-            <LayoutDashboard className="w-8 h-8 text-muted-foreground" />
-          </div>
-          <h3 className="text-lg font-semibold mb-2">No boards yet</h3>
-          <p className="text-muted-foreground text-center max-w-sm mb-6">
-            Create your first board to start organizing tasks with Kanban,
-            lists, and more.
-          </p>
-          <CreateBoardDialog workspaceId={workspaceId} />
-        </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {boards.map((board) => (
-            <BoardCard
-              key={board.id}
-              board={board}
-              workspaceId={workspaceId}
-            />
-          ))}
-        </div>
-      )}
+      <WorkspaceBoards workspaceId={workspaceId} initialBoards={boards} />
     </div>
   );
 }
