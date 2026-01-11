@@ -10,6 +10,18 @@ import {
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { TaskHeader } from "./task-header";
 import { TaskDescription } from "./task-description";
 import { TaskDates } from "./task-dates";
@@ -21,8 +33,8 @@ import { AttachmentList } from "./attachment-list";
 import { ActivityLog } from "./activity-log";
 import { CommentSection } from "./comment-section";
 import { CustomFields } from "./custom-fields";
-import { getTask, type TaskWithRelations } from "@/lib/actions/tasks";
-import { Loader2, MessageSquare, History, Paperclip } from "lucide-react";
+import { getTask, deleteTask, archiveTask, unarchiveTask, type TaskWithRelations } from "@/lib/actions/tasks";
+import { Loader2, MessageSquare, History, Paperclip, Trash2, Archive, ArchiveRestore } from "lucide-react";
 
 interface TaskDetailModalProps {
   taskId: string | null;
@@ -43,6 +55,9 @@ export function TaskDetailModal({
 }: TaskDetailModalProps) {
   const [task, setTask] = useState<TaskWithRelations | null>(null);
   const [initialLoading, setInitialLoading] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
   const hasChanges = useRef(false);
 
   useEffect(() => {
@@ -75,11 +90,54 @@ export function TaskDetailModal({
     hasChanges.current = true;
   };
 
+  const handleDelete = async () => {
+    if (!task) return;
+    setIsDeleting(true);
+    const result = await deleteTask(task.id);
+    if (result.success) {
+      hasChanges.current = true;
+      onTaskUpdated?.();
+      onOpenChange(false);
+    }
+    setIsDeleting(false);
+    setShowDeleteDialog(false);
+  };
+
+  const handleArchiveToggle = async () => {
+    if (!task) return;
+    setIsArchiving(true);
+    
+    const result = task.archived
+      ? await unarchiveTask(task.id)
+      : await archiveTask(task.id);
+
+    if (result.success) {
+      // Update local state
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              archived: !prev.archived,
+              archived_at: prev.archived ? null : new Date().toISOString(),
+            }
+          : prev
+      );
+      hasChanges.current = true;
+      
+      // If archiving, close the modal (task disappears from board)
+      if (!task.archived) {
+        onTaskUpdated?.();
+        onOpenChange(false);
+      }
+    }
+    setIsArchiving(false);
+  };
+
   if (!taskId) return null;
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-6xl w-[95vw] h-[85vh] p-0 gap-0 overflow-hidden">
+      <DialogContent className="sm:max-w-6xl w-[95vw] h-[85vh] p-0 gap-0 overflow-hidden" showCloseButton={false}>
         <VisuallyHidden>
           <DialogTitle>{task?.title || "Task Details"}</DialogTitle>
         </VisuallyHidden>
@@ -93,7 +151,6 @@ export function TaskDetailModal({
               <TaskHeader
                 task={task}
                 setTask={setTask}
-                onClose={() => handleOpenChange(false)}
                 onChanged={markChanged}
               />
             </DialogHeader>
@@ -202,11 +259,42 @@ export function TaskDetailModal({
 
                       {/* Custom Fields */}
                       <CustomFields
-                        taskId={task.id}
+                        task={task}
                         boardId={boardId}
                         setTask={setTask}
                         onChanged={markChanged}
                       />
+
+                      {/* Actions */}
+                      <Separator className="my-4" />
+                      <div className="space-y-2">
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start"
+                          onClick={handleArchiveToggle}
+                          disabled={isArchiving}
+                        >
+                          {task.archived ? (
+                            <>
+                              <ArchiveRestore className="mr-2 h-4 w-4" />
+                              {isArchiving ? "Restoring..." : "Restore from Archive"}
+                            </>
+                          ) : (
+                            <>
+                              <Archive className="mr-2 h-4 w-4" />
+                              {isArchiving ? "Archiving..." : "Archive Task"}
+                            </>
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setShowDeleteDialog(true)}
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Delete Task
+                        </Button>
+                      </div>
                     </div>
                   </ScrollArea>
                 </div>
@@ -218,6 +306,29 @@ export function TaskDetailModal({
             Task not found
           </div>
         )}
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete task</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete &quot;{task?.title}&quot;? This action cannot
+                be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );

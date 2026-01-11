@@ -51,7 +51,7 @@ export function TaskAssignees({
 
   const loadMembers = async () => {
     const data = await getWorkspaceMembers(workspaceId);
-    setMembers(data as WorkspaceMember[]);
+    setMembers(data as unknown as WorkspaceMember[]);
   };
 
   const assignees = task.assignees || [];

@@ -1,6 +1,7 @@
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { Sparkles } from "lucide-react";
 import Link from "next/link";
+import { Suspense } from "react";
 
 export default function SignInPage() {
   return (
@@ -11,7 +12,9 @@ export default function SignInPage() {
         </div>
         <span className="text-xl font-bold tracking-tight">Plan.krd</span>
       </Link>
-      <SignInForm />
+      <Suspense fallback={<div className="animate-pulse">Loading...</div>}>
+        <SignInForm />
+      </Suspense>
     </div>
   );
 }

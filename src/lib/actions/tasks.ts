@@ -13,9 +13,25 @@ export type Task = {
   priority: "low" | "medium" | "high" | "urgent" | null;
   start_date: string | null;
   due_date: string | null;
+  archived: boolean;
+  archived_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type CustomFieldValue = {
+  id: string;
+  field_id: string;
+  value: string | null;
+  custom_field: {
+    id: string;
+    name: string;
+    field_type: "text" | "number" | "dropdown";
+    options: string[];
+    required: boolean;
+    position: number;
+  };
 };
 
 export type TaskWithRelations = Task & {
@@ -52,11 +68,12 @@ export type TaskWithRelations = Task & {
       avatar_url: string | null;
     } | null;
   }>;
+  custom_field_values: CustomFieldValue[];
   attachments_count: number;
   comments_count: number;
 };
 
-export async function getTask(taskId: string): Promise<TaskWithRelations | null> {
+export async function getTask(taskId: string, boardId?: string): Promise<TaskWithRelations | null> {
   const supabase = await createClient();
 
   const { data: task, error } = await supabase
@@ -73,7 +90,13 @@ export async function getTask(taskId: string): Promise<TaskWithRelations | null>
         label_id,
         labels(id, name, color)
       ),
-      subtasks(id, title, completed, position, due_date, assignee_id, assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url))
+      subtasks(id, title, completed, position, due_date, assignee_id, assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url)),
+      custom_field_values(
+        id,
+        field_id,
+        value,
+        custom_field:custom_fields(id, name, field_type, options, required, position)
+      )
     `)
     .eq("id", taskId)
     .single();
@@ -83,7 +106,7 @@ export async function getTask(taskId: string): Promise<TaskWithRelations | null>
     return null;
   }
 
-  // Get counts for attachments and comments
+  // Get counts for attachments and comments in parallel
   const [{ count: attachments_count }, { count: comments_count }] = await Promise.all([
     supabase
       .from("attachments")
@@ -95,8 +118,16 @@ export async function getTask(taskId: string): Promise<TaskWithRelations | null>
       .eq("task_id", taskId),
   ]);
 
+  // Sort custom field values by field position
+  const sortedCustomFieldValues = (task.custom_field_values || [])
+    .filter((cfv: { custom_field: { position: number } | null }) => cfv.custom_field)
+    .sort((a: { custom_field: { position: number } }, b: { custom_field: { position: number } }) => 
+      a.custom_field.position - b.custom_field.position
+    );
+
   return {
     ...task,
+    custom_field_values: sortedCustomFieldValues,
     attachments_count: attachments_count || 0,
     comments_count: comments_count || 0,
   } as TaskWithRelations;
@@ -136,15 +167,21 @@ export async function getTasksByBoard(boardId: string): Promise<Task[]> {
   return data || [];
 }
 
-export async function getTasksWithRelations(boardId: string): Promise<TaskWithRelations[]> {
+export async function getTasksWithRelations(boardId: string, includeArchived = false): Promise<TaskWithRelations[]> {
   const supabase = await createClient();
 
-  // First, get all tasks for the board
-  const { data: tasks, error: tasksError } = await supabase
+  // First, get all tasks for the board (excluding archived by default)
+  let query = supabase
     .from("tasks")
     .select("*, lists!inner(board_id)")
     .eq("lists.board_id", boardId)
     .order("position", { ascending: true });
+
+  if (!includeArchived) {
+    query = query.eq("archived", false);
+  }
+
+  const { data: tasks, error: tasksError } = await query;
 
   if (tasksError) {
     console.error("Error fetching tasks:", tasksError);
@@ -203,7 +240,7 @@ export async function getTasksWithRelations(boardId: string): Promise<TaskWithRe
     assignees: (assigneesByTask.get(task.id) || []).map((a) => ({
       id: a.id,
       user_id: a.user_id,
-      profiles: a.profiles as {
+      profiles: a.profiles as unknown as {
         id: string;
         email: string | null;
         full_name: string | null;
@@ -213,7 +250,7 @@ export async function getTasksWithRelations(boardId: string): Promise<TaskWithRe
     labels: (labelsByTask.get(task.id) || []).map((l) => ({
       id: l.id,
       label_id: l.label_id,
-      labels: l.labels as {
+      labels: l.labels as unknown as {
         id: string;
         name: string;
         color: string;
@@ -226,13 +263,14 @@ export async function getTasksWithRelations(boardId: string): Promise<TaskWithRe
       position: s.position,
       due_date: s.due_date,
       assignee_id: s.assignee_id,
-      assignee: s.assignee as {
+      assignee: s.assignee as unknown as {
         id: string;
         email: string | null;
         full_name: string | null;
         avatar_url: string | null;
       } | null,
     })),
+    custom_field_values: [],
     attachments_count: 0,
     comments_count: 0,
   })) as TaskWithRelations[];
@@ -476,6 +514,54 @@ export async function reorderTasksInList(
       return { success: false, error: error.message };
     }
   }
+
+  return { success: true };
+}
+
+export async function archiveTask(
+  taskId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      archived: true,
+      archived_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId);
+
+  if (error) {
+    console.error("Error archiving task:", error);
+    return { success: false, error: error.message };
+  }
+
+  await logActivity(taskId, "updated", { archived: true });
+
+  return { success: true };
+}
+
+export async function unarchiveTask(
+  taskId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      archived: false,
+      archived_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId);
+
+  if (error) {
+    console.error("Error unarchiving task:", error);
+    return { success: false, error: error.message };
+  }
+
+  await logActivity(taskId, "updated", { archived: false });
 
   return { success: true };
 }

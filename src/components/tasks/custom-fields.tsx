@@ -10,55 +10,110 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  getCustomFieldsWithValues,
+  getCustomFields,
   setCustomFieldValue,
-  type CustomFieldWithValue,
+  type CustomField,
 } from "@/lib/actions/custom-fields";
-import { type TaskWithRelations } from "@/lib/actions/tasks";
+import { type TaskWithRelations, type CustomFieldValue } from "@/lib/actions/tasks";
 import { Settings2, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+
+type FieldWithValue = CustomField & { value: string | null };
 
 interface CustomFieldsProps {
-  taskId: string;
+  task: TaskWithRelations;
   boardId: string;
   setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   onChanged: () => void;
 }
 
 export function CustomFields({
-  taskId,
+  task,
   boardId,
   setTask,
   onChanged,
 }: CustomFieldsProps) {
-  const [fields, setFields] = useState<CustomFieldWithValue[]>([]);
+  const [fields, setFields] = useState<FieldWithValue[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [savingFieldId, setSavingFieldId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadFields();
-  }, [taskId, boardId]);
+    loadFieldDefinitions();
+  }, [boardId]);
 
-  const loadFields = async () => {
+  // When task custom_field_values change, update local state
+  useEffect(() => {
+    if (fields.length > 0) {
+      const valueMap = new Map(
+        task.custom_field_values?.map((cfv) => [cfv.field_id, cfv.value]) || []
+      );
+      setFields((prev) =>
+        prev.map((f) => ({ ...f, value: valueMap.get(f.id) || null }))
+      );
+    }
+  }, [task.custom_field_values]);
+
+  const loadFieldDefinitions = async () => {
     setIsLoading(true);
-    const data = await getCustomFieldsWithValues(boardId, taskId);
-    setFields(data);
+    const fieldDefs = await getCustomFields(boardId);
+    
+    // Merge with preloaded values from task
+    const valueMap = new Map(
+      task.custom_field_values?.map((cfv) => [cfv.field_id, cfv.value]) || []
+    );
+    
+    const fieldsWithValues = fieldDefs.map((f) => ({
+      ...f,
+      value: valueMap.get(f.id) || null,
+    }));
+    
+    setFields(fieldsWithValues);
     setIsLoading(false);
   };
 
   const handleValueChange = async (fieldId: string, value: string | null) => {
     setSavingFieldId(fieldId);
+    const oldFields = [...fields];
 
-    // Optimistic update
+    // Optimistic update local state
     setFields((prev) =>
       prev.map((f) => (f.id === fieldId ? { ...f, value } : f))
     );
+    
+    // Also update parent task state
+    setTask((prev) => {
+      if (!prev) return prev;
+      const existingIndex = prev.custom_field_values?.findIndex(
+        (cfv) => cfv.field_id === fieldId
+      );
+      const field = fields.find((f) => f.id === fieldId);
+      if (!field) return prev;
+      
+      let newValues = [...(prev.custom_field_values || [])];
+      if (existingIndex !== undefined && existingIndex >= 0) {
+        newValues[existingIndex] = { ...newValues[existingIndex], value };
+      } else {
+        newValues.push({
+          id: `temp-${Date.now()}`,
+          field_id: fieldId,
+          value,
+          custom_field: {
+            id: field.id,
+            name: field.name,
+            field_type: field.field_type,
+            options: field.options,
+            required: field.required,
+            position: field.position,
+          },
+        });
+      }
+      return { ...prev, custom_field_values: newValues };
+    });
     onChanged();
 
-    const result = await setCustomFieldValue(taskId, fieldId, value);
+    const result = await setCustomFieldValue(task.id, fieldId, value);
     if (!result.success) {
       // Rollback on error
-      loadFields();
+      setFields(oldFields);
     }
 
     setSavingFieldId(null);

@@ -42,9 +42,12 @@ export function CreateTaskDialog({
       // Create a TaskWithRelations object with empty relations
       const taskWithRelations: TaskWithRelations = {
         ...result.task,
+        archived: false,
+        archived_at: null,
         assignees: [],
         labels: [],
         subtasks: [],
+        custom_field_values: [],
         attachments_count: 0,
         comments_count: 0,
       };

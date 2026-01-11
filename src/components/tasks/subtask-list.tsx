@@ -18,7 +18,6 @@ import {
   updateSubtask,
   deleteSubtask,
   toggleSubtask,
-  type Subtask,
 } from "@/lib/actions/subtasks";
 import { getWorkspaceMembers } from "@/lib/actions/assignees";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
@@ -44,6 +43,22 @@ type WorkspaceMember = {
   } | null;
 };
 
+// Local type matching TaskWithRelations.subtasks
+type SubtaskItem = {
+  id: string;
+  title: string;
+  completed: boolean;
+  position: number;
+  due_date: string | null;
+  assignee_id: string | null;
+  assignee?: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
+
 export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskListProps) {
   const [newSubtask, setNewSubtask] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -62,7 +77,7 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
   const loadMembers = async () => {
     if (!workspaceId) return;
     const data = await getWorkspaceMembers(workspaceId);
-    setMembers(data as WorkspaceMember[]);
+    setMembers(data as unknown as WorkspaceMember[]);
   };
 
   const getInitials = (name: string | null, email: string | null) => {
@@ -79,13 +94,13 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
     setIsAdding(true);
 
     const tempId = `temp-${Date.now()}`;
-    const newItem: Subtask = {
+    const newItem: SubtaskItem = {
       id: tempId,
-      parent_task_id: task.id,
       title: newSubtask.trim(),
       completed: false,
       position: subtasks.length,
-      created_at: new Date().toISOString(),
+      due_date: null,
+      assignee_id: null,
     };
 
     // Optimistic add
@@ -115,7 +130,7 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
     setIsAdding(false);
   };
 
-  const handleToggle = async (subtask: Subtask) => {
+  const handleToggle = async (subtask: SubtaskItem) => {
     const newCompleted = !subtask.completed;
 
     // Optimistic toggle
@@ -147,7 +162,7 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
     }
   };
 
-  const handleDelete = async (subtask: Subtask) => {
+  const handleDelete = async (subtask: SubtaskItem) => {
     const oldSubtasks = [...subtasks];
 
     // Optimistic delete
@@ -196,7 +211,7 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
     setEditingTitle("");
   };
 
-  const handleDueDateChange = async (subtask: Subtask, date: Date | undefined) => {
+  const handleDueDateChange = async (subtask: SubtaskItem, date: Date | undefined) => {
     const oldSubtasks = [...subtasks];
     const newDate = date ? format(date, "yyyy-MM-dd") : null;
 
@@ -219,7 +234,7 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
     }
   };
 
-  const handleAssigneeChange = async (subtask: Subtask, member: WorkspaceMember | null) => {
+  const handleAssigneeChange = async (subtask: SubtaskItem, member: WorkspaceMember | null) => {
     const oldSubtasks = [...subtasks];
     const newAssigneeId = member?.user_id || null;
     const newAssignee = member?.profiles
