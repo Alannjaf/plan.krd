@@ -6,6 +6,7 @@ import { KanbanBoard } from "@/components/kanban/kanban-board";
 import { ListView } from "@/components/views/list-view";
 import { CalendarView } from "@/components/views/calendar-view";
 import { WorkloadView } from "@/components/views/workload-view";
+import { TaskDetailModal } from "@/components/tasks/task-detail-modal";
 import { BoardHeaderActions } from "./board-header-actions";
 import { ViewSwitcher, type ViewType } from "./view-switcher";
 import { BoardFilter, filterTasks, type FilterState } from "./board-filter";
