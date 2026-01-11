@@ -89,6 +89,47 @@ export async function uploadAttachment(
   return { success: true, attachment: data };
 }
 
+// Create attachment record only (used when upload is done client-side for progress tracking)
+export async function createAttachmentRecord(
+  taskId: string,
+  fileInfo: {
+    file_name: string;
+    file_path: string;
+    file_type: string;
+    file_size: number;
+  }
+): Promise<{ success: boolean; attachment?: Attachment; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "User not authenticated" };
+  }
+
+  const { data, error } = await supabase
+    .from("attachments")
+    .insert({
+      task_id: taskId,
+      file_name: fileInfo.file_name,
+      file_path: fileInfo.file_path,
+      file_type: fileInfo.file_type,
+      file_size: fileInfo.file_size,
+      uploaded_by: user.id,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error creating attachment record:", error);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true, attachment: data };
+}
+
 export async function deleteAttachment(
   attachmentId: string
 ): Promise<{ success: boolean; error?: string }> {

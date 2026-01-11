@@ -4,14 +4,23 @@ import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } 
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
+import {
   getAttachments,
-  uploadAttachment,
+  createAttachmentRecord,
   deleteAttachment,
   getAttachmentUrl,
   type Attachment,
 } from "@/lib/actions/attachments";
+import { createClient } from "@/lib/supabase/client";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { isImageFile, isPdfFile, formatFileSize } from "@/lib/utils/file-helpers";
+import { logActivity } from "@/lib/actions/activities";
+import { Progress } from "@/components/ui/progress";
 import {
   Upload,
   File,
@@ -20,6 +29,9 @@ import {
   Loader2,
   Download,
   Trash2,
+  X,
+  Eye,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +46,9 @@ export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [currentFileName, setCurrentFileName] = useState<string>("");
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     loadAttachments();
@@ -46,14 +61,79 @@ export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps
     setIsLoading(false);
   };
 
+  // Client-side upload with progress simulation
+  const uploadFileWithProgress = async (
+    file: File,
+    onProgress: (progress: number) => void
+  ): Promise<{ success: boolean; attachment?: Attachment }> => {
+    const supabase = createClient();
+    
+    // Generate unique file path
+    const fileExt = file.name.split(".").pop();
+    const fileName = `${task.id}/${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+    // Start progress simulation based on file size
+    const fileSizeMB = file.size / (1024 * 1024);
+    const estimatedTimeMs = Math.max(500, fileSizeMB * 200); // ~200ms per MB, min 500ms
+    const startTime = Date.now();
+    
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(90, (elapsed / estimatedTimeMs) * 90);
+      onProgress(progress);
+    }, 50);
+
+    try {
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from("attachments")
+        .upload(fileName, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      clearInterval(progressInterval);
+
+      if (uploadError) {
+        console.error("Upload error:", uploadError);
+        onProgress(0);
+        return { success: false };
+      }
+
+      onProgress(95);
+
+      // Create database record
+      const result = await createAttachmentRecord(task.id, {
+        file_name: file.name,
+        file_path: fileName,
+        file_type: file.type,
+        file_size: file.size,
+      });
+
+      if (result.success) {
+        await logActivity(task.id, "attachment_added", { fileName: file.name });
+      }
+
+      onProgress(100);
+      return result;
+    } catch (error) {
+      clearInterval(progressInterval);
+      console.error("Upload error:", error);
+      return { success: false };
+    }
+  };
+
   const onDrop = useCallback(
     async (acceptedFiles: File[]) => {
       setIsUploading(true);
-      setUploadProgress(0);
-
+      
       for (let i = 0; i < acceptedFiles.length; i++) {
         const file = acceptedFiles[i];
-        const result = await uploadAttachment(task.id, file);
+        setCurrentFileName(file.name);
+        setUploadProgress(0);
+        
+        const result = await uploadFileWithProgress(file, setUploadProgress);
+        
         if (result.success && result.attachment) {
           // Update local attachments
           setAttachments((prev) => [result.attachment!, ...prev]);
@@ -65,10 +145,16 @@ export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps
           );
           onChanged();
         }
-        setUploadProgress(((i + 1) / acceptedFiles.length) * 100);
+        
+        // Brief pause between files for visual feedback
+        if (i < acceptedFiles.length - 1) {
+          await new Promise((r) => setTimeout(r, 200));
+        }
       }
 
       setIsUploading(false);
+      setUploadProgress(0);
+      setCurrentFileName("");
     },
     [task.id, setTask, onChanged]
   );
@@ -105,8 +191,25 @@ export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps
   const handleDownload = async (attachment: Attachment) => {
     const { url } = await getAttachmentUrl(attachment.file_path);
     if (url) {
-      window.open(url, "_blank");
+      // Force download
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = attachment.file_name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
+  };
+
+  const handlePreview = async (attachment: Attachment) => {
+    setPreviewAttachment(attachment);
+    const { url } = await getAttachmentUrl(attachment.file_path);
+    setPreviewUrl(url);
+  };
+
+  const closePreview = () => {
+    setPreviewAttachment(null);
+    setPreviewUrl(null);
   };
 
   return (
@@ -118,16 +221,23 @@ export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps
           "border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors",
           isDragActive
             ? "border-primary bg-primary/5"
-            : "border-border hover:border-primary/50 hover:bg-secondary/30"
+            : "border-border hover:border-primary/50 hover:bg-secondary/30",
+          isUploading && "pointer-events-none"
         )}
       >
         <input {...getInputProps()} />
         {isUploading ? (
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">
-              Uploading... {Math.round(uploadProgress)}%
-            </p>
+          <div className="flex flex-col items-center gap-3">
+            <div className="relative">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+            <div className="w-full max-w-xs space-y-2">
+              <p className="text-sm font-medium truncate">{currentFileName}</p>
+              <Progress value={uploadProgress} className="h-2" />
+              <p className="text-xs text-muted-foreground">
+                {Math.round(uploadProgress)}% uploaded
+              </p>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2">
@@ -141,6 +251,93 @@ export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps
           </div>
         )}
       </div>
+
+      {/* Preview Modal */}
+      <Dialog open={!!previewAttachment} onOpenChange={(open) => !open && closePreview()}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] p-0 overflow-hidden">
+          <VisuallyHidden>
+            <DialogTitle>{previewAttachment?.file_name || "Preview"}</DialogTitle>
+          </VisuallyHidden>
+          {previewAttachment && (
+            <div className="flex flex-col h-full">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b bg-secondary/30">
+                <div className="flex items-center gap-3 min-w-0">
+                  {isImageFile(previewAttachment.file_type) ? (
+                    <ImageIcon className="h-5 w-5 text-muted-foreground shrink-0" />
+                  ) : isPdfFile(previewAttachment.file_type) ? (
+                    <FileText className="h-5 w-5 text-muted-foreground shrink-0" />
+                  ) : (
+                    <File className="h-5 w-5 text-muted-foreground shrink-0" />
+                  )}
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{previewAttachment.file_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatFileSize(previewAttachment.file_size)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => previewUrl && window.open(previewUrl, "_blank")}
+                  >
+                    <ExternalLink className="h-4 w-4 mr-1" />
+                    Open
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownload(previewAttachment)}
+                  >
+                    <Download className="h-4 w-4 mr-1" />
+                    Download
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={closePreview}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Preview Content */}
+              <div className="flex-1 flex items-center justify-center p-4 bg-black/90 min-h-[400px] max-h-[70vh] overflow-auto">
+                {!previewUrl ? (
+                  <Loader2 className="h-8 w-8 animate-spin text-white" />
+                ) : isImageFile(previewAttachment.file_type) ? (
+                  <img
+                    src={previewUrl}
+                    alt={previewAttachment.file_name}
+                    className="max-w-full max-h-full object-contain"
+                  />
+                ) : isPdfFile(previewAttachment.file_type) ? (
+                  <iframe
+                    src={previewUrl}
+                    className="w-full h-full min-h-[500px] bg-white rounded"
+                    title={previewAttachment.file_name}
+                  />
+                ) : (
+                  <div className="text-center text-white">
+                    <File className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium">{previewAttachment.file_name}</p>
+                    <p className="text-sm text-white/60 mt-1">
+                      Preview not available for this file type
+                    </p>
+                    <Button
+                      variant="secondary"
+                      className="mt-4"
+                      onClick={() => handleDownload(previewAttachment)}
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download to view
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Attachments Grid */}
       {isLoading ? (
@@ -159,6 +356,7 @@ export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps
               attachment={attachment}
               onDelete={handleDelete}
               onDownload={handleDownload}
+              onPreview={handlePreview}
             />
           ))}
         </div>
@@ -171,35 +369,41 @@ interface AttachmentCardProps {
   attachment: Attachment;
   onDelete: (attachment: Attachment) => void;
   onDownload: (attachment: Attachment) => void;
+  onPreview: (attachment: Attachment) => void;
 }
 
-function AttachmentCard({ attachment, onDelete, onDownload }: AttachmentCardProps) {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+function AttachmentCard({ attachment, onDelete, onDownload, onPreview }: AttachmentCardProps) {
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [isLoadingThumbnail, setIsLoadingThumbnail] = useState(false);
 
   useEffect(() => {
     if (isImageFile(attachment.file_type)) {
-      loadPreview();
+      loadThumbnail();
     }
   }, [attachment]);
 
-  const loadPreview = async () => {
-    setIsLoadingPreview(true);
+  const loadThumbnail = async () => {
+    setIsLoadingThumbnail(true);
     const { url } = await getAttachmentUrl(attachment.file_path);
-    setPreviewUrl(url);
-    setIsLoadingPreview(false);
+    setThumbnailUrl(url);
+    setIsLoadingThumbnail(false);
   };
 
+  const canPreview = isImageFile(attachment.file_type) || isPdfFile(attachment.file_type);
+
   return (
-    <div className="group relative border rounded-lg p-3 hover:bg-secondary/30 transition-colors">
+    <div 
+      className="group relative border rounded-lg p-3 hover:bg-secondary/30 transition-colors cursor-pointer"
+      onClick={() => onPreview(attachment)}
+    >
       <div className="flex items-start gap-3">
-        <div className="shrink-0 w-12 h-12 flex items-center justify-center bg-secondary/50 rounded-md overflow-hidden">
+        <div className="shrink-0 w-12 h-12 flex items-center justify-center bg-secondary/50 rounded-md overflow-hidden relative">
           {isImageFile(attachment.file_type) ? (
-            isLoadingPreview ? (
+            isLoadingThumbnail ? (
               <Loader2 className="h-4 w-4 animate-spin" />
-            ) : previewUrl ? (
+            ) : thumbnailUrl ? (
               <img
-                src={previewUrl}
+                src={thumbnailUrl}
                 alt={attachment.file_name}
                 className="w-full h-full object-cover"
               />
@@ -210,6 +414,12 @@ function AttachmentCard({ attachment, onDelete, onDownload }: AttachmentCardProp
             <FileText className="h-6 w-6 text-muted-foreground" />
           ) : (
             <File className="h-6 w-6 text-muted-foreground" />
+          )}
+          {/* Preview overlay on hover */}
+          {canPreview && (
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <Eye className="h-4 w-4 text-white" />
+            </div>
           )}
         </div>
         <div className="flex-1 min-w-0">
@@ -225,7 +435,10 @@ function AttachmentCard({ attachment, onDelete, onDownload }: AttachmentCardProp
           variant="secondary"
           size="icon"
           className="h-6 w-6"
-          onClick={() => onDownload(attachment)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownload(attachment);
+          }}
         >
           <Download className="h-3 w-3" />
         </Button>
@@ -233,7 +446,10 @@ function AttachmentCard({ attachment, onDelete, onDownload }: AttachmentCardProp
           variant="secondary"
           size="icon"
           className="h-6 w-6 hover:bg-destructive hover:text-destructive-foreground"
-          onClick={() => onDelete(attachment)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(attachment);
+          }}
         >
           <Trash2 className="h-3 w-3" />
         </Button>
