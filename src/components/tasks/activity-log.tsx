@@ -6,9 +6,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
   getTaskActivities,
-  getActivityMessage,
   type TaskActivity,
 } from "@/lib/actions/activities";
+import { getActivityMessage } from "@/lib/utils/activity-messages";
 import { formatDistanceToNow } from "date-fns";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 
