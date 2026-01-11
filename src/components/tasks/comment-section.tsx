@@ -1,16 +1,15 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  getComments,
-  createComment,
-  type Comment,
-} from "@/lib/actions/comments";
-import { getWorkspaceMembers } from "@/lib/actions/assignees";
+import { createComment } from "@/lib/actions/comments";
+import { useComments } from "@/lib/query/queries/comments";
+import { useWorkspaceMembers } from "@/lib/query/queries/members";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys as commentQueryKeys } from "@/lib/query/queries/comments";
 import { CommentItem } from "./comment-item";
 import { Loader2, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,8 +17,9 @@ import { cn } from "@/lib/utils";
 interface CommentSectionProps {
   taskId: string;
   workspaceId: string;
-  setTask?: React.Dispatch<React.SetStateAction<any>>;
+  setTask?: React.Dispatch<React.SetStateAction<unknown>>;
   onChanged?: () => void;
+  readOnly?: boolean;
 }
 
 type Member = {
@@ -36,35 +36,19 @@ type Member = {
 export function CommentSection({
   taskId,
   workspaceId,
-  setTask,
-  onChanged,
+  readOnly = false,
 }: CommentSectionProps) {
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: comments = [], isLoading: commentsLoading } = useComments(taskId);
+  const { data: membersData = [] } = useWorkspaceMembers(workspaceId);
+  const members = membersData as unknown as Member[];
+  
   const [newComment, setNewComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [members, setMembers] = useState<Member[]>([]);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionSearch, setMentionSearch] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    loadComments();
-    loadMembers();
-  }, [taskId, workspaceId]);
-
-  const loadComments = async () => {
-    setIsLoading(true);
-    const data = await getComments(taskId);
-    setComments(data);
-    setIsLoading(false);
-  };
-
-  const loadMembers = async () => {
-    const data = await getWorkspaceMembers(workspaceId);
-    setMembers(data as unknown as Member[]);
-  };
 
   const filteredMembers = members.filter((member) => {
     if (!mentionSearch) return true;
@@ -132,13 +116,17 @@ export function CommentSection({
     setIsSubmitting(true);
     const result = await createComment(taskId, newComment.trim());
     if (result.success) {
-      loadComments();
+      queryClient.invalidateQueries({ queryKey: commentQueryKeys.comments(taskId) });
     }
     setNewComment("");
     setIsSubmitting(false);
   };
 
-  if (isLoading) {
+  const handleCommentUpdate = () => {
+    queryClient.invalidateQueries({ queryKey: commentQueryKeys.comments(taskId) });
+  };
+
+  if (commentsLoading) {
     return (
       <div className="flex justify-center py-8">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -149,93 +137,95 @@ export function CommentSection({
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Comment Input */}
-      <div className="flex gap-3 shrink-0 mb-4">
-        <Avatar className="h-8 w-8 shrink-0">
-          <AvatarFallback className="text-xs">ME</AvatarFallback>
-        </Avatar>
-        <div className="flex-1 space-y-2 relative">
-          <Textarea
-            ref={textareaRef}
-            placeholder="Write a comment... Use @username to mention someone"
-            value={newComment}
-            onChange={(e) => handleTextChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (showMentions) {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setMentionIndex((prev) => Math.min(prev + 1, filteredMembers.length - 1));
-                } else if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setMentionIndex((prev) => Math.max(prev - 1, 0));
-                } else if (e.key === "Enter" && filteredMembers[mentionIndex]) {
-                  e.preventDefault();
-                  insertMention(filteredMembers[mentionIndex]);
-                } else if (e.key === "Escape") {
-                  setShowMentions(false);
+      {!readOnly && (
+        <div className="flex gap-3 shrink-0 mb-4">
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarFallback className="text-xs">ME</AvatarFallback>
+          </Avatar>
+          <div className="flex-1 space-y-2 relative">
+            <Textarea
+              ref={textareaRef}
+              placeholder="Write a comment... Use @username to mention someone"
+              value={newComment}
+              onChange={(e) => handleTextChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (showMentions) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    setMentionIndex((prev) => Math.min(prev + 1, filteredMembers.length - 1));
+                  } else if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setMentionIndex((prev) => Math.max(prev - 1, 0));
+                  } else if (e.key === "Enter" && filteredMembers[mentionIndex]) {
+                    e.preventDefault();
+                    insertMention(filteredMembers[mentionIndex]);
+                  } else if (e.key === "Escape") {
+                    setShowMentions(false);
+                  }
                 }
-              }
-            }}
-            className="min-h-[80px] resize-none"
-          />
-          {showMentions && (
-            <div className="absolute z-50 w-64 mt-2 bg-popover border rounded-md shadow-md">
-              <ScrollArea className="max-h-[200px]">
-                {filteredMembers.length === 0 ? (
-                  <div className="p-4 text-sm text-muted-foreground text-center">
-                    No members found
-                  </div>
-                ) : (
-                  <div className="py-1">
-                    {filteredMembers.map((member, index) => {
-                      const name = member.profiles?.full_name || member.profiles?.email || "Unknown";
-                      return (
-                        <div
-                          key={member.user_id}
-                          className={cn(
-                            "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted transition-colors",
-                            index === mentionIndex && "bg-muted"
-                          )}
-                          onClick={() => insertMention(member)}
-                          onMouseEnter={() => setMentionIndex(index)}
-                        >
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={member.profiles?.avatar_url || undefined} />
-                            <AvatarFallback className="text-xs">
-                              {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">{name}</div>
-                            {member.profiles?.email && member.profiles?.full_name && (
-                              <div className="text-xs text-muted-foreground truncate">
-                                {member.profiles.email}
-                              </div>
+              }}
+              className="min-h-[80px] resize-none"
+            />
+            {showMentions && (
+              <div className="absolute z-50 w-64 mt-2 bg-popover border rounded-md shadow-md">
+                <ScrollArea className="max-h-[200px]">
+                  {filteredMembers.length === 0 ? (
+                    <div className="p-4 text-sm text-muted-foreground text-center">
+                      No members found
+                    </div>
+                  ) : (
+                    <div className="py-1">
+                      {filteredMembers.map((member, index) => {
+                        const name = member.profiles?.full_name || member.profiles?.email || "Unknown";
+                        return (
+                          <div
+                            key={member.user_id}
+                            className={cn(
+                              "flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted transition-colors",
+                              index === mentionIndex && "bg-muted"
                             )}
+                            onClick={() => insertMention(member)}
+                            onMouseEnter={() => setMentionIndex(index)}
+                          >
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={member.profiles?.avatar_url || undefined} />
+                              <AvatarFallback className="text-xs">
+                                {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium truncate">{name}</div>
+                              {member.profiles?.email && member.profiles?.full_name && (
+                                <div className="text-xs text-muted-foreground truncate">
+                                  {member.profiles.email}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </ScrollArea>
+              </div>
+            )}
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                onClick={handleSubmit}
+                disabled={isSubmitting || !newComment.trim()}
+              >
+                {isSubmitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <Send className="h-4 w-4 mr-1" />
                 )}
-              </ScrollArea>
+                Send
+              </Button>
             </div>
-          )}
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              onClick={handleSubmit}
-              disabled={isSubmitting || !newComment.trim()}
-            >
-              {isSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-1" />
-              ) : (
-                <Send className="h-4 w-4 mr-1" />
-              )}
-              Send
-            </Button>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Comments List */}
       {comments.length === 0 ? (
@@ -250,7 +240,7 @@ export function CommentSection({
                 key={comment.id}
                 comment={comment}
                 taskId={taskId}
-                onUpdate={loadComments}
+                onUpdate={handleCommentUpdate}
               />
             ))}
           </div>

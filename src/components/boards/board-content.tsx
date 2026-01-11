@@ -45,7 +45,11 @@ export function BoardContent({
   });
 
   // Use query hook for tasks
-  const { data: tasks = initialTasks, isLoading } = useTasksWithRelations(board.id, showArchived);
+  const { data: tasks = initialTasks, isLoading } = useTasksWithRelations(
+    board.id,
+    showArchived,
+    initialTasks // Pass initial data to prevent refetch
+  );
 
   // Read task ID from URL param on mount
   useEffect(() => {

@@ -8,11 +8,17 @@ export const queryKeys = {
   task: (taskId: string) => ["tasks", taskId] as const,
 };
 
-export function useTasksWithRelations(boardId: string, includeArchived = false) {
+export function useTasksWithRelations(
+  boardId: string,
+  includeArchived = false,
+  initialData?: TaskWithRelations[]
+) {
   return useQuery({
     queryKey: queryKeys.tasksByBoard(boardId),
     queryFn: () => getTasksWithRelations(boardId, includeArchived),
     enabled: !!boardId,
+    initialData: initialData,
+    refetchOnMount: initialData ? false : true, // Don't refetch if we have initial data
   });
 }
 

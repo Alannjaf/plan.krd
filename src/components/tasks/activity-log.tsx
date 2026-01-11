@@ -1,13 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import {
-  getTaskActivities,
-  type TaskActivity,
-} from "@/lib/actions/activities";
+import { useTaskActivities } from "@/lib/query/queries/activities";
 import { getActivityMessage } from "@/lib/utils/activity-messages";
 import { formatDistanceToNow } from "date-fns";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
@@ -17,20 +13,8 @@ interface ActivityLogProps {
 }
 
 export function ActivityLog({ taskId }: ActivityLogProps) {
-  const [activities, setActivities] = useState<TaskActivity[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: activities = [], isLoading } = useTaskActivities(taskId);
   const [isExpanded, setIsExpanded] = useState(false);
-
-  useEffect(() => {
-    loadActivities();
-  }, [taskId]);
-
-  const loadActivities = async () => {
-    setIsLoading(true);
-    const data = await getTaskActivities(taskId);
-    setActivities(data);
-    setIsLoading(false);
-  };
 
   const displayedActivities = isExpanded ? activities : activities.slice(0, 5);
 

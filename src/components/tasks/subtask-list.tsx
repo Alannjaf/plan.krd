@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type Dispatch, type SetStateAction } from "react";
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,7 +19,9 @@ import {
   deleteSubtask,
   toggleSubtask,
 } from "@/lib/actions/subtasks";
-import { getWorkspaceMembers } from "@/lib/actions/assignees";
+import { useWorkspaceMembers } from "@/lib/query/queries/members";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys as taskQueryKeys } from "@/lib/query/queries/tasks";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { format, isPast, isToday } from "date-fns";
 import { CheckSquare, Plus, Trash2, GripVertical, CalendarIcon, User, X } from "lucide-react";
@@ -28,8 +30,8 @@ import { cn } from "@/lib/utils";
 interface SubtaskListProps {
   task: TaskWithRelations;
   workspaceId: string;
-  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   onChanged: () => void;
+  readOnly?: boolean;
 }
 
 type WorkspaceMember = {
@@ -59,25 +61,21 @@ type SubtaskItem = {
   } | null;
 };
 
-export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskListProps) {
+export function SubtaskList({ task, workspaceId, onChanged, readOnly = false }: SubtaskListProps) {
+  const queryClient = useQueryClient();
   const [newSubtask, setNewSubtask] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+  const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+  
+  const { data: membersData = [] } = useWorkspaceMembers(workspaceId);
+  const members = membersData as unknown as WorkspaceMember[];
 
   const subtasks = task.subtasks || [];
 
-  useEffect(() => {
-    if (workspaceId) {
-      loadMembers();
-    }
-  }, [workspaceId]);
-
-  const loadMembers = async () => {
-    if (!workspaceId) return;
-    const data = await getWorkspaceMembers(workspaceId);
-    setMembers(data as unknown as WorkspaceMember[]);
+  const invalidateTask = () => {
+    queryClient.invalidateQueries({ queryKey: taskQueryKeys.task(task.id) });
   };
 
   const getInitials = (name: string | null, email: string | null) => {
@@ -86,185 +84,106 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
     }
     return email?.slice(0, 2).toUpperCase() || "??";
   };
+
   const completedCount = subtasks.filter((s) => s.completed).length;
   const progress = subtasks.length > 0 ? (completedCount / subtasks.length) * 100 : 0;
 
   const handleAddSubtask = async () => {
-    if (!newSubtask.trim()) return;
+    if (!newSubtask.trim() || readOnly) return;
     setIsAdding(true);
 
-    const tempId = `temp-${Date.now()}`;
-    const newItem: SubtaskItem = {
-      id: tempId,
-      title: newSubtask.trim(),
-      completed: false,
-      position: subtasks.length,
-      due_date: null,
-      assignee_id: null,
-    };
-
-    // Optimistic add
-    setTask((prev) =>
-      prev
-        ? {
-            ...prev,
-            subtasks: [...(prev.subtasks || []), newItem],
-          }
-        : prev
-    );
-    onChanged();
-    setNewSubtask("");
-
-    const result = await createSubtask(task.id, newItem.title);
-    if (!result.success) {
-      // Rollback
-      setTask((prev) =>
-        prev
-          ? {
-              ...prev,
-              subtasks: prev.subtasks?.filter((s) => s.id !== tempId),
-            }
-          : prev
-      );
+    const result = await createSubtask(task.id, newSubtask.trim());
+    if (result.success) {
+      invalidateTask();
+      onChanged();
     }
+    setNewSubtask("");
     setIsAdding(false);
   };
 
   const handleToggle = async (subtask: SubtaskItem) => {
+    if (readOnly) return;
     const newCompleted = !subtask.completed;
-
-    // Optimistic toggle
-    setTask((prev) =>
-      prev
-        ? {
-            ...prev,
-            subtasks: prev.subtasks?.map((s) =>
-              s.id === subtask.id ? { ...s, completed: newCompleted } : s
-            ),
-          }
-        : prev
-    );
-    onChanged();
-
+    
+    setProcessingIds((prev) => new Set(prev).add(subtask.id));
     const result = await toggleSubtask(subtask.id, newCompleted);
-    if (!result.success) {
-      // Rollback
-      setTask((prev) =>
-        prev
-          ? {
-              ...prev,
-              subtasks: prev.subtasks?.map((s) =>
-                s.id === subtask.id ? { ...s, completed: subtask.completed } : s
-              ),
-            }
-          : prev
-      );
+    if (result.success) {
+      invalidateTask();
+      onChanged();
     }
+    setProcessingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(subtask.id);
+      return next;
+    });
   };
 
   const handleDelete = async (subtask: SubtaskItem) => {
-    const oldSubtasks = [...subtasks];
-
-    // Optimistic delete
-    setTask((prev) =>
-      prev
-        ? {
-            ...prev,
-            subtasks: prev.subtasks?.filter((s) => s.id !== subtask.id),
-          }
-        : prev
-    );
-    onChanged();
-
+    if (readOnly) return;
+    setProcessingIds((prev) => new Set(prev).add(subtask.id));
+    
     const result = await deleteSubtask(subtask.id);
-    if (!result.success) {
-      // Rollback
-      setTask((prev) => (prev ? { ...prev, subtasks: oldSubtasks } : prev));
+    if (result.success) {
+      invalidateTask();
+      onChanged();
     }
+    setProcessingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(subtask.id);
+      return next;
+    });
   };
 
   const handleSaveEdit = async (subtaskId: string) => {
-    if (!editingTitle.trim()) return;
+    if (!editingTitle.trim() || readOnly) return;
 
-    const oldSubtasks = [...subtasks];
-
-    // Optimistic update
-    setTask((prev) =>
-      prev
-        ? {
-            ...prev,
-            subtasks: prev.subtasks?.map((s) =>
-              s.id === subtaskId ? { ...s, title: editingTitle.trim() } : s
-            ),
-          }
-        : prev
-    );
-    onChanged();
-
+    setProcessingIds((prev) => new Set(prev).add(subtaskId));
     const result = await updateSubtask(subtaskId, { title: editingTitle.trim() });
-    if (!result.success) {
-      // Rollback
-      setTask((prev) => (prev ? { ...prev, subtasks: oldSubtasks } : prev));
+    if (result.success) {
+      invalidateTask();
+      onChanged();
     }
-
+    setProcessingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(subtaskId);
+      return next;
+    });
     setEditingId(null);
     setEditingTitle("");
   };
 
   const handleDueDateChange = async (subtask: SubtaskItem, date: Date | undefined) => {
-    const oldSubtasks = [...subtasks];
+    if (readOnly) return;
     const newDate = date ? format(date, "yyyy-MM-dd") : null;
 
-    // Optimistic update
-    setTask((prev) =>
-      prev
-        ? {
-            ...prev,
-            subtasks: prev.subtasks?.map((s) =>
-              s.id === subtask.id ? { ...s, due_date: newDate } : s
-            ),
-          }
-        : prev
-    );
-    onChanged();
-
+    setProcessingIds((prev) => new Set(prev).add(subtask.id));
     const result = await updateSubtask(subtask.id, { due_date: newDate });
-    if (!result.success) {
-      setTask((prev) => (prev ? { ...prev, subtasks: oldSubtasks } : prev));
+    if (result.success) {
+      invalidateTask();
+      onChanged();
     }
+    setProcessingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(subtask.id);
+      return next;
+    });
   };
 
   const handleAssigneeChange = async (subtask: SubtaskItem, member: WorkspaceMember | null) => {
-    const oldSubtasks = [...subtasks];
+    if (readOnly) return;
     const newAssigneeId = member?.user_id || null;
-    const newAssignee = member?.profiles
-      ? {
-          id: member.profiles.id,
-          email: member.profiles.email,
-          full_name: member.profiles.full_name,
-          avatar_url: member.profiles.avatar_url,
-        }
-      : null;
 
-    // Optimistic update
-    setTask((prev) =>
-      prev
-        ? {
-            ...prev,
-            subtasks: prev.subtasks?.map((s) =>
-              s.id === subtask.id
-                ? { ...s, assignee_id: newAssigneeId, assignee: newAssignee }
-                : s
-            ),
-          }
-        : prev
-    );
-    onChanged();
-
+    setProcessingIds((prev) => new Set(prev).add(subtask.id));
     const result = await updateSubtask(subtask.id, { assignee_id: newAssigneeId });
-    if (!result.success) {
-      setTask((prev) => (prev ? { ...prev, subtasks: oldSubtasks } : prev));
+    if (result.success) {
+      invalidateTask();
+      onChanged();
     }
+    setProcessingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(subtask.id);
+      return next;
+    });
   };
 
   return (
@@ -287,13 +206,15 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
         {subtasks.map((subtask) => {
           const parsedDueDate = subtask.due_date ? new Date(subtask.due_date) : undefined;
           const isOverdue = parsedDueDate && isPast(parsedDueDate) && !isToday(parsedDueDate) && !subtask.completed;
+          const isProcessing = processingIds.has(subtask.id);
 
           return (
             <div
               key={subtask.id}
               className={cn(
                 "flex items-center gap-2 group p-2 rounded-md hover:bg-secondary/50 transition-colors",
-                subtask.completed && "opacity-60"
+                subtask.completed && "opacity-60",
+                isProcessing && "opacity-50"
               )}
             >
               <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 cursor-grab shrink-0" />
@@ -301,6 +222,7 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
                 checked={subtask.completed}
                 onCheckedChange={() => handleToggle(subtask)}
                 className="shrink-0"
+                disabled={readOnly || isProcessing}
               />
               
               {/* Title */}
@@ -318,16 +240,20 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
                   }}
                   className="h-7 text-sm flex-1"
                   autoFocus
+                  disabled={isProcessing}
                 />
               ) : (
                 <span
                   className={cn(
                     "flex-1 text-sm cursor-pointer min-w-0 truncate",
-                    subtask.completed && "line-through"
+                    subtask.completed && "line-through",
+                    readOnly && "cursor-default"
                   )}
                   onClick={() => {
-                    setEditingId(subtask.id);
-                    setEditingTitle(subtask.title);
+                    if (!readOnly) {
+                      setEditingId(subtask.id);
+                      setEditingTitle(subtask.title);
+                    }
                   }}
                 >
                   {subtask.title}
@@ -335,42 +261,45 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
               )}
 
               {/* Due Date Picker */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-6 w-6 shrink-0",
-                      subtask.due_date ? "opacity-100" : "opacity-0 group-hover:opacity-100",
-                      isOverdue && "text-destructive"
+              {!readOnly && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-6 w-6 shrink-0",
+                        subtask.due_date ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                        isOverdue && "text-destructive"
+                      )}
+                      disabled={isProcessing}
+                    >
+                      <CalendarIcon className="h-3 w-3" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <Calendar
+                      mode="single"
+                      selected={parsedDueDate}
+                      onSelect={(date) => handleDueDateChange(subtask, date)}
+                      initialFocus
+                    />
+                    {subtask.due_date && (
+                      <div className="p-2 border-t">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => handleDueDateChange(subtask, undefined)}
+                        >
+                          <X className="mr-2 h-3 w-3" />
+                          Clear
+                        </Button>
+                      </div>
                     )}
-                  >
-                    <CalendarIcon className="h-3 w-3" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <Calendar
-                    mode="single"
-                    selected={parsedDueDate}
-                    onSelect={(date) => handleDueDateChange(subtask, date)}
-                    initialFocus
-                  />
-                  {subtask.due_date && (
-                    <div className="p-2 border-t">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full"
-                        onClick={() => handleDueDateChange(subtask, undefined)}
-                      >
-                        <X className="mr-2 h-3 w-3" />
-                        Clear
-                      </Button>
-                    </div>
-                  )}
-                </PopoverContent>
-              </Popover>
+                  </PopoverContent>
+                </Popover>
+              )}
 
               {/* Due Date Display */}
               {subtask.due_date && (
@@ -383,96 +312,104 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
               )}
 
               {/* Assignee Picker */}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-6 w-6 shrink-0 p-0",
-                      subtask.assignee ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                    )}
-                  >
-                    {subtask.assignee ? (
-                      <Avatar className="h-5 w-5">
-                        <AvatarImage src={subtask.assignee.avatar_url || undefined} />
-                        <AvatarFallback className="text-[10px]">
-                          {getInitials(subtask.assignee.full_name, subtask.assignee.email)}
-                        </AvatarFallback>
-                      </Avatar>
-                    ) : (
-                      <User className="h-3 w-3" />
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-56 p-2" align="end">
-                  <ScrollArea className="h-48">
-                    {subtask.assignee && (
-                      <button
-                        className="w-full flex items-center gap-2 p-2 rounded-md hover:bg-secondary/50 text-sm text-muted-foreground"
-                        onClick={() => handleAssigneeChange(subtask, null)}
-                      >
-                        <X className="h-4 w-4" />
-                        Unassign
-                      </button>
-                    )}
-                    {members.filter((m) => m.profiles).map((member) => (
-                      <button
-                        key={member.user_id}
-                        className={cn(
-                          "w-full flex items-center gap-2 p-2 rounded-md hover:bg-secondary/50 transition-colors",
-                          subtask.assignee_id === member.user_id && "bg-secondary"
-                        )}
-                        onClick={() => handleAssigneeChange(subtask, member)}
-                      >
+              {!readOnly && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-6 w-6 shrink-0 p-0",
+                        subtask.assignee ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      )}
+                      disabled={isProcessing}
+                    >
+                      {subtask.assignee ? (
                         <Avatar className="h-5 w-5">
-                          <AvatarImage src={member.profiles?.avatar_url || undefined} />
+                          <AvatarImage src={subtask.assignee.avatar_url || undefined} />
                           <AvatarFallback className="text-[10px]">
-                            {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
+                            {getInitials(subtask.assignee.full_name, subtask.assignee.email)}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="text-sm truncate">
-                          {member.profiles?.full_name || member.profiles?.email || "Unknown"}
-                        </span>
-                      </button>
-                    ))}
-                  </ScrollArea>
-                </PopoverContent>
-              </Popover>
+                      ) : (
+                        <User className="h-3 w-3" />
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-56 p-2" align="end">
+                    <ScrollArea className="h-48">
+                      {subtask.assignee && (
+                        <button
+                          className="w-full flex items-center gap-2 p-2 rounded-md hover:bg-secondary/50 text-sm text-muted-foreground"
+                          onClick={() => handleAssigneeChange(subtask, null)}
+                        >
+                          <X className="h-4 w-4" />
+                          Unassign
+                        </button>
+                      )}
+                      {members.filter((m) => m.profiles).map((member) => (
+                        <button
+                          key={member.user_id}
+                          className={cn(
+                            "w-full flex items-center gap-2 p-2 rounded-md hover:bg-secondary/50 transition-colors",
+                            subtask.assignee_id === member.user_id && "bg-secondary"
+                          )}
+                          onClick={() => handleAssigneeChange(subtask, member)}
+                        >
+                          <Avatar className="h-5 w-5">
+                            <AvatarImage src={member.profiles?.avatar_url || undefined} />
+                            <AvatarFallback className="text-[10px]">
+                              {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="text-sm truncate">
+                            {member.profiles?.full_name || member.profiles?.email || "Unknown"}
+                          </span>
+                        </button>
+                      ))}
+                    </ScrollArea>
+                  </PopoverContent>
+                </Popover>
+              )}
 
               {/* Delete Button */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0"
-                onClick={() => handleDelete(subtask)}
-              >
-                <Trash2 className="h-3 w-3" />
-              </Button>
+              {!readOnly && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive shrink-0"
+                  onClick={() => handleDelete(subtask)}
+                  disabled={isProcessing}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              )}
             </div>
           );
         })}
       </div>
 
-      <div className="flex items-center gap-2">
-        <Input
-          placeholder="Add a subtask..."
-          value={newSubtask}
-          onChange={(e) => setNewSubtask(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleAddSubtask();
-          }}
-          className="h-8 text-sm"
-        />
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={handleAddSubtask}
-          disabled={isAdding || !newSubtask.trim()}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Add a subtask..."
+            value={newSubtask}
+            onChange={(e) => setNewSubtask(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAddSubtask();
+            }}
+            className="h-8 text-sm"
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleAddSubtask}
+            disabled={isAdding || !newSubtask.trim()}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

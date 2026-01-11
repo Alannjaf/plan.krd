@@ -196,8 +196,8 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
 
   const taskIds = tasks.map((t) => t.id);
 
-  // Fetch relations in parallel
-  const [assigneesResult, labelsResult, subtasksResult] = await Promise.all([
+  // Fetch relations and counts in parallel
+  const [assigneesResult, labelsResult, subtasksResult, attachmentsResult, commentsResult] = await Promise.all([
     supabase
       .from("task_assignees")
       .select("id, task_id, user_id, profiles:profiles!task_assignees_user_id_fkey(id, email, full_name, avatar_url)")
@@ -211,12 +211,22 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
       .select("id, parent_task_id, title, completed, position, due_date, assignee_id, assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url)")
       .in("parent_task_id", taskIds)
       .order("position", { ascending: true }),
+    supabase
+      .from("attachments")
+      .select("task_id")
+      .in("task_id", taskIds),
+    supabase
+      .from("comments")
+      .select("task_id")
+      .in("task_id", taskIds),
   ]);
 
   // Group relations by task_id
   const assigneesByTask = new Map<string, typeof assigneesResult.data>();
   const labelsByTask = new Map<string, typeof labelsResult.data>();
   const subtasksByTask = new Map<string, typeof subtasksResult.data>();
+  const attachmentsCountByTask = new Map<string, number>();
+  const commentsCountByTask = new Map<string, number>();
 
   assigneesResult.data?.forEach((a) => {
     const existing = assigneesByTask.get(a.task_id) || [];
@@ -234,6 +244,18 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
     const existing = subtasksByTask.get(s.parent_task_id) || [];
     existing.push(s);
     subtasksByTask.set(s.parent_task_id, existing);
+  });
+
+  // Count attachments by task_id
+  attachmentsResult.data?.forEach((a) => {
+    const count = attachmentsCountByTask.get(a.task_id) || 0;
+    attachmentsCountByTask.set(a.task_id, count + 1);
+  });
+
+  // Count comments by task_id
+  commentsResult.data?.forEach((c) => {
+    const count = commentsCountByTask.get(c.task_id) || 0;
+    commentsCountByTask.set(c.task_id, count + 1);
   });
 
   // Combine tasks with their relations
@@ -273,8 +295,8 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
       } | null,
     })),
     custom_field_values: [],
-    attachments_count: 0,
-    comments_count: 0,
+    attachments_count: attachmentsCountByTask.get(task.id) || 0,
+    comments_count: commentsCountByTask.get(task.id) || 0,
   })) as TaskWithRelations[];
 }
 

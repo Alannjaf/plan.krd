@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,12 +10,14 @@ import {
 } from "@/components/ui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import {
-  getAttachments,
   createAttachmentRecord,
   deleteAttachment,
   getAttachmentUrl,
   type Attachment,
 } from "@/lib/actions/attachments";
+import { useAttachments } from "@/lib/query/queries/attachments";
+import { queryKeys as attachmentQueryKeys } from "@/lib/query/queries/attachments";
+import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { isImageFile, isPdfFile, formatFileSize } from "@/lib/utils/file-helpers";
@@ -37,29 +39,17 @@ import { cn } from "@/lib/utils";
 
 interface AttachmentListProps {
   task: TaskWithRelations;
-  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   onChanged: () => void;
 }
 
-export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps) {
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+export function AttachmentList({ task, onChanged }: AttachmentListProps) {
+  const queryClient = useQueryClient();
+  const { data: attachments = [], isLoading } = useAttachments(task.id);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [currentFileName, setCurrentFileName] = useState<string>("");
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadAttachments();
-  }, [task.id]);
-
-  const loadAttachments = async () => {
-    setIsLoading(true);
-    const data = await getAttachments(task.id);
-    setAttachments(data);
-    setIsLoading(false);
-  };
 
   // Client-side upload with progress simulation
   const uploadFileWithProgress = async (
@@ -135,14 +125,8 @@ export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps
         const result = await uploadFileWithProgress(file, setUploadProgress);
         
         if (result.success && result.attachment) {
-          // Update local attachments
-          setAttachments((prev) => [result.attachment!, ...prev]);
-          // Update task attachment count
-          setTask((prev) =>
-            prev
-              ? { ...prev, attachments_count: prev.attachments_count + 1 }
-              : prev
-          );
+          // Invalidate attachments query to refetch
+          queryClient.invalidateQueries({ queryKey: attachmentQueryKeys.attachments(task.id) });
           onChanged();
         }
         
@@ -165,26 +149,10 @@ export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps
   });
 
   const handleDelete = async (attachment: Attachment) => {
-    const oldAttachments = [...attachments];
-
-    // Optimistic delete
-    setAttachments((prev) => prev.filter((a) => a.id !== attachment.id));
-    setTask((prev) =>
-      prev
-        ? { ...prev, attachments_count: Math.max(0, prev.attachments_count - 1) }
-        : prev
-    );
-    onChanged();
-
     const result = await deleteAttachment(attachment.id);
-    if (!result.success) {
-      // Rollback
-      setAttachments(oldAttachments);
-      setTask((prev) =>
-        prev
-          ? { ...prev, attachments_count: prev.attachments_count + 1 }
-          : prev
-      );
+    if (result.success) {
+      queryClient.invalidateQueries({ queryKey: attachmentQueryKeys.attachments(task.id) });
+      onChanged();
     }
   };
 

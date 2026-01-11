@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -62,6 +63,7 @@ export function TaskDetailModal({
   const archiveTaskMutation = useArchiveTask();
   const unarchiveTaskMutation = useUnarchiveTask();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState("comments");
   const hasChanges = useRef(false);
 
   useEffect(() => {
@@ -120,6 +122,9 @@ export function TaskDetailModal({
       <DialogContent className="sm:max-w-6xl w-[95vw] h-[85vh] p-0 gap-0 overflow-hidden">
         <VisuallyHidden>
           <DialogTitle>{task?.title || "Task Details"}</DialogTitle>
+          <DialogDescription>
+            View and edit task details, comments, attachments, and activity
+          </DialogDescription>
         </VisuallyHidden>
         {initialLoading ? (
           <div className="flex items-center justify-center h-full">
@@ -156,8 +161,8 @@ export function TaskDetailModal({
                         readOnly={readOnly}
                       />
 
-                      {/* Tabs for Comments, Activity, Attachments */}
-                      <Tabs defaultValue="comments" className="w-full flex flex-col min-h-0 max-h-[calc(85vh-400px)]">
+                      {/* Tabs for Comments, Activity, Attachments - Lazy loaded */}
+                      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full flex flex-col min-h-0 max-h-[calc(85vh-400px)]">
                         <TabsList className="w-full justify-start shrink-0">
                           <TabsTrigger value="comments" className="gap-2">
                             <MessageSquare className="h-4 w-4" />
@@ -183,20 +188,26 @@ export function TaskDetailModal({
                           </TabsTrigger>
                         </TabsList>
                         <TabsContent value="comments" className="mt-4 flex-1 min-h-0 flex flex-col">
-                          <CommentSection
-                            taskId={task.id}
-                            workspaceId={workspaceId}
-                            readOnly={readOnly}
-                          />
+                          {activeTab === "comments" && (
+                            <CommentSection
+                              taskId={task.id}
+                              workspaceId={workspaceId}
+                              readOnly={readOnly}
+                            />
+                          )}
                         </TabsContent>
                         <TabsContent value="attachments" className="mt-4">
-                          <AttachmentList
-                            task={task}
-                            onChanged={markChanged}
-                          />
+                          {activeTab === "attachments" && (
+                            <AttachmentList
+                              task={task}
+                              onChanged={markChanged}
+                            />
+                          )}
                         </TabsContent>
                         <TabsContent value="activity" className="mt-4">
-                          <ActivityLog taskId={task.id} />
+                          {activeTab === "activity" && (
+                            <ActivityLog taskId={task.id} />
+                          )}
                         </TabsContent>
                       </Tabs>
                     </div>
