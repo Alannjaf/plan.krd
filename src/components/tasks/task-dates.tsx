@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type Dispatch, type SetStateAction } from "react";
 import { format } from "date-fns";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -9,42 +9,42 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { updateTask } from "@/lib/actions/tasks";
+import { updateTask, type TaskWithRelations } from "@/lib/actions/tasks";
 import { CalendarIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TaskDatesProps {
-  taskId: string;
-  startDate: string | null;
-  dueDate: string | null;
-  onUpdate: () => void;
+  task: TaskWithRelations;
+  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
+  onChanged: () => void;
 }
 
-export function TaskDates({
-  taskId,
-  startDate,
-  dueDate,
-  onUpdate,
-}: TaskDatesProps) {
-  const [isUpdating, setIsUpdating] = useState(false);
-
+export function TaskDates({ task, setTask, onChanged }: TaskDatesProps) {
   const handleDateChange = async (
     field: "start_date" | "due_date",
     date: Date | undefined
   ) => {
-    setIsUpdating(true);
-    await updateTask(taskId, {
-      [field]: date ? format(date, "yyyy-MM-dd") : null,
-    });
-    onUpdate();
-    setIsUpdating(false);
+    const newValue = date ? format(date, "yyyy-MM-dd") : null;
+    const oldValue = task[field];
+
+    // Optimistic update
+    setTask((prev) => (prev ? { ...prev, [field]: newValue } : prev));
+    onChanged();
+
+    // Persist to database
+    const result = await updateTask(task.id, { [field]: newValue });
+
+    // Rollback on error
+    if (!result.success) {
+      setTask((prev) => (prev ? { ...prev, [field]: oldValue } : prev));
+    }
   };
 
-  const parsedStartDate = startDate ? new Date(startDate) : undefined;
-  const parsedDueDate = dueDate ? new Date(dueDate) : undefined;
+  const parsedStartDate = task.start_date ? new Date(task.start_date) : undefined;
+  const parsedDueDate = task.due_date ? new Date(task.due_date) : undefined;
 
   const isOverdue =
-    parsedDueDate && parsedDueDate < new Date() && !startDate;
+    parsedDueDate && parsedDueDate < new Date() && !task.start_date;
 
   return (
     <div className="space-y-3">
@@ -59,9 +59,8 @@ export function TaskDates({
               variant="outline"
               className={cn(
                 "w-full justify-start text-left font-normal",
-                !startDate && "text-muted-foreground"
+                !task.start_date && "text-muted-foreground"
               )}
-              disabled={isUpdating}
             >
               <CalendarIcon className="mr-2 h-4 w-4" />
               {parsedStartDate ? format(parsedStartDate, "PPP") : "Set start date"}
@@ -74,7 +73,7 @@ export function TaskDates({
               onSelect={(date) => handleDateChange("start_date", date)}
               initialFocus
             />
-            {startDate && (
+            {task.start_date && (
               <div className="p-2 border-t">
                 <Button
                   variant="ghost"
@@ -100,10 +99,9 @@ export function TaskDates({
               variant="outline"
               className={cn(
                 "w-full justify-start text-left font-normal",
-                !dueDate && "text-muted-foreground",
+                !task.due_date && "text-muted-foreground",
                 isOverdue && "border-destructive text-destructive"
               )}
-              disabled={isUpdating}
             >
               <CalendarIcon className="mr-2 h-4 w-4" />
               {parsedDueDate ? format(parsedDueDate, "PPP") : "Set due date"}
@@ -116,7 +114,7 @@ export function TaskDates({
               onSelect={(date) => handleDateChange("due_date", date)}
               initialFocus
             />
-            {dueDate && (
+            {task.due_date && (
               <div className="p-2 border-t">
                 <Button
                   variant="ghost"

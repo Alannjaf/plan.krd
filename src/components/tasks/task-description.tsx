@@ -1,23 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Button } from "@/components/ui/button";
-import { updateTask } from "@/lib/actions/tasks";
+import { updateTask, type TaskWithRelations } from "@/lib/actions/tasks";
 import { AlignLeft, Check, X } from "lucide-react";
 
 interface TaskDescriptionProps {
-  taskId: string;
-  description: string | null;
-  onUpdate: () => void;
+  task: TaskWithRelations;
+  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
+  onChanged: () => void;
 }
 
 export function TaskDescription({
-  taskId,
-  description,
-  onUpdate,
+  task,
+  setTask,
+  onChanged,
 }: TaskDescriptionProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -29,7 +29,7 @@ export function TaskDescription({
         placeholder: "Add a more detailed description...",
       }),
     ],
-    content: description || "",
+    content: task.description || "",
     immediatelyRender: false, // Prevent SSR hydration mismatch
     editorProps: {
       attributes: {
@@ -42,16 +42,30 @@ export function TaskDescription({
   const handleSave = async () => {
     if (!editor) return;
     setIsSaving(true);
+
     const html = editor.getHTML();
     const newDescription = html === "<p></p>" ? null : html;
-    await updateTask(taskId, { description: newDescription });
-    onUpdate();
+    const oldDescription = task.description;
+
+    // Optimistic update
+    setTask((prev) => (prev ? { ...prev, description: newDescription } : prev));
+    onChanged();
     setIsEditing(false);
+
+    // Persist to database
+    const result = await updateTask(task.id, { description: newDescription });
+
+    // Rollback on error
+    if (!result.success) {
+      setTask((prev) => (prev ? { ...prev, description: oldDescription } : prev));
+      editor.commands.setContent(oldDescription || "");
+    }
+
     setIsSaving(false);
   };
 
   const handleCancel = () => {
-    editor?.commands.setContent(description || "");
+    editor?.commands.setContent(task.description || "");
     setIsEditing(false);
   };
 
@@ -81,10 +95,10 @@ export function TaskDescription({
           className="min-h-[60px] p-3 border border-dashed rounded-md cursor-pointer hover:border-primary/50 hover:bg-secondary/30 transition-colors"
           onClick={() => setIsEditing(true)}
         >
-          {description ? (
+          {task.description ? (
             <div
               className="prose prose-sm dark:prose-invert max-w-none"
-              dangerouslySetInnerHTML={{ __html: description }}
+              dangerouslySetInnerHTML={{ __html: task.description }}
             />
           ) : (
             <p className="text-sm text-muted-foreground">

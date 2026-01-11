@@ -153,12 +153,17 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks }: KanbanBoardP
 
   const handleTaskUpdated = async () => {
     // Refetch the updated task and update local state
-    if (selectedTaskId) {
-      const updatedTask = await getTask(selectedTaskId);
+    // Use the selectedTaskId at the time the function is called
+    const taskId = selectedTaskId;
+    if (taskId) {
+      const updatedTask = await getTask(taskId);
       if (updatedTask) {
         setLocalTasks((prev) =>
           prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
         );
+      } else {
+        // Task was deleted, remove it from the list
+        setLocalTasks((prev) => prev.filter((t) => t.id !== taskId));
       }
     }
   };

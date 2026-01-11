@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -42,32 +42,42 @@ export function TaskDetailModal({
 }: TaskDetailModalProps) {
   const [task, setTask] = useState<TaskWithRelations | null>(null);
   const [initialLoading, setInitialLoading] = useState(false);
+  const hasChanges = useRef(false);
 
   useEffect(() => {
     if (taskId && open) {
-      loadTask(true);
+      loadTask();
     } else {
       setTask(null);
+      hasChanges.current = false;
     }
   }, [taskId, open]);
 
-  const loadTask = async (isInitial = false) => {
+  const loadTask = async () => {
     if (!taskId) return;
-    if (isInitial) setInitialLoading(true);
+    setInitialLoading(true);
     const data = await getTask(taskId);
     setTask(data);
-    if (isInitial) setInitialLoading(false);
+    setInitialLoading(false);
   };
 
-  const handleTaskUpdate = () => {
-    loadTask(false); // Silent refresh, no loading state
-    onTaskUpdated?.();
+  // Handle modal close - sync with Kanban board
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen && hasChanges.current) {
+      onTaskUpdated?.();
+    }
+    onOpenChange(newOpen);
+  };
+
+  // Mark that changes were made (for syncing on close)
+  const markChanged = () => {
+    hasChanges.current = true;
   };
 
   if (!taskId) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-6xl w-[95vw] h-[85vh] p-0 gap-0 overflow-hidden">
         <VisuallyHidden>
           <DialogTitle>{task?.title || "Task Details"}</DialogTitle>
@@ -81,8 +91,9 @@ export function TaskDetailModal({
             <DialogHeader className="p-6 pb-0 shrink-0">
               <TaskHeader
                 task={task}
-                onUpdate={handleTaskUpdate}
-                onClose={() => onOpenChange(false)}
+                setTask={setTask}
+                onClose={() => handleOpenChange(false)}
+                onChanged={markChanged}
               />
             </DialogHeader>
 
@@ -94,16 +105,16 @@ export function TaskDetailModal({
                     <div className="p-6 space-y-6">
                       {/* Description */}
                       <TaskDescription
-                        taskId={task.id}
-                        description={task.description}
-                        onUpdate={handleTaskUpdate}
+                        task={task}
+                        setTask={setTask}
+                        onChanged={markChanged}
                       />
 
                       {/* Subtasks */}
                       <SubtaskList
-                        taskId={task.id}
-                        subtasks={task.subtasks}
-                        onUpdate={handleTaskUpdate}
+                        task={task}
+                        setTask={setTask}
+                        onChanged={markChanged}
                       />
 
                       {/* Tabs for Comments, Activity, Attachments */}
@@ -136,13 +147,13 @@ export function TaskDetailModal({
                           <CommentSection
                             taskId={task.id}
                             workspaceId={workspaceId}
-                            onUpdate={handleTaskUpdate}
                           />
                         </TabsContent>
                         <TabsContent value="attachments" className="mt-4">
                           <AttachmentList
-                            taskId={task.id}
-                            onUpdate={handleTaskUpdate}
+                            task={task}
+                            setTask={setTask}
+                            onChanged={markChanged}
                           />
                         </TabsContent>
                         <TabsContent value="activity" className="mt-4">
@@ -159,33 +170,32 @@ export function TaskDetailModal({
                     <div className="p-4 space-y-5">
                       {/* Assignees */}
                       <TaskAssignees
-                        taskId={task.id}
+                        task={task}
+                        setTask={setTask}
                         workspaceId={workspaceId}
-                        assignees={task.assignees}
-                        onUpdate={handleTaskUpdate}
+                        onChanged={markChanged}
                       />
 
                       {/* Labels */}
                       <TaskLabels
-                        taskId={task.id}
+                        task={task}
+                        setTask={setTask}
                         boardId={boardId}
-                        labels={task.labels}
-                        onUpdate={handleTaskUpdate}
+                        onChanged={markChanged}
                       />
 
                       {/* Dates */}
                       <TaskDates
-                        taskId={task.id}
-                        startDate={task.start_date}
-                        dueDate={task.due_date}
-                        onUpdate={handleTaskUpdate}
+                        task={task}
+                        setTask={setTask}
+                        onChanged={markChanged}
                       />
 
                       {/* Priority */}
                       <TaskPriority
-                        taskId={task.id}
-                        priority={task.priority}
-                        onUpdate={handleTaskUpdate}
+                        task={task}
+                        setTask={setTask}
+                        onChanged={markChanged}
                       />
                     </div>
                   </ScrollArea>

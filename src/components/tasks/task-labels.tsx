@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type Dispatch, type SetStateAction } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -16,25 +16,15 @@ import {
   removeLabelFromTask,
   type Label,
 } from "@/lib/actions/labels";
-import { logActivity } from "@/lib/actions/activities";
+import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { Tags, Plus, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface LabelData {
-  id: string;
-  label_id: string;
-  labels: {
-    id: string;
-    name: string;
-    color: string;
-  };
-}
-
 interface TaskLabelsProps {
-  taskId: string;
+  task: TaskWithRelations;
+  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   boardId: string;
-  labels: LabelData[];
-  onUpdate: () => void;
+  onChanged: () => void;
 }
 
 const defaultColors = [
@@ -49,15 +39,14 @@ const defaultColors = [
 ];
 
 export function TaskLabels({
-  taskId,
+  task,
+  setTask,
   boardId,
-  labels,
-  onUpdate,
+  onChanged,
 }: TaskLabelsProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [boardLabels, setBoardLabels] = useState<Label[]>([]);
   const [search, setSearch] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [newLabelName, setNewLabelName] = useState("");
   const [newLabelColor, setNewLabelColor] = useState(defaultColors[0]);
@@ -73,6 +62,7 @@ export function TaskLabels({
     setBoardLabels(data);
   };
 
+  const labels = task.labels || [];
   const assignedLabelIds = labels.map((l) => l.label_id);
 
   const filteredLabels = boardLabels.filter((l) =>
@@ -80,34 +70,83 @@ export function TaskLabels({
   );
 
   const handleToggleLabel = async (label: Label) => {
-    setIsLoading(true);
     const isAssigned = assignedLabelIds.includes(label.id);
+    const oldLabels = [...labels];
 
     if (isAssigned) {
-      await removeLabelFromTask(taskId, label.id);
-      await logActivity(taskId, "label_removed", { label: label.name });
-    } else {
-      await addLabelToTask(taskId, label.id);
-      await logActivity(taskId, "label_added", { label: label.name });
-    }
+      // Optimistic remove
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              labels: prev.labels?.filter((l) => l.label_id !== label.id),
+            }
+          : prev
+      );
+      onChanged();
 
-    onUpdate();
-    setIsLoading(false);
+      const result = await removeLabelFromTask(task.id, label.id);
+      if (!result.success) {
+        setTask((prev) => (prev ? { ...prev, labels: oldLabels } : prev));
+      }
+    } else {
+      // Optimistic add
+      const newLabel = {
+        id: `temp-${Date.now()}`,
+        label_id: label.id,
+        labels: {
+          id: label.id,
+          name: label.name,
+          color: label.color,
+        },
+      };
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              labels: [...(prev.labels || []), newLabel],
+            }
+          : prev
+      );
+      onChanged();
+
+      const result = await addLabelToTask(task.id, label.id);
+      if (!result.success) {
+        setTask((prev) => (prev ? { ...prev, labels: oldLabels } : prev));
+      }
+    }
   };
 
   const handleCreateLabel = async () => {
     if (!newLabelName.trim()) return;
-    setIsLoading(true);
+
     const result = await createLabel(boardId, newLabelName.trim(), newLabelColor);
     if (result.success && result.label) {
-      await addLabelToTask(taskId, result.label.id);
-      await logActivity(taskId, "label_added", { label: newLabelName.trim() });
-      onUpdate();
+      // Add the new label to the task
+      const newLabel = {
+        id: `temp-${Date.now()}`,
+        label_id: result.label.id,
+        labels: {
+          id: result.label.id,
+          name: result.label.name,
+          color: result.label.color,
+        },
+      };
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              labels: [...(prev.labels || []), newLabel],
+            }
+          : prev
+      );
+      onChanged();
+
+      await addLabelToTask(task.id, result.label.id);
       loadLabels();
     }
     setNewLabelName("");
     setIsCreating(false);
-    setIsLoading(false);
   };
 
   return (
@@ -122,21 +161,20 @@ export function TaskLabels({
           <span
             key={label.id}
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-white"
-            style={{ backgroundColor: label.labels.color }}
+            style={{ backgroundColor: label.labels?.color }}
           >
-            {label.labels.name}
+            {label.labels?.name}
             <button
               className="hover:opacity-70 transition-opacity"
               onClick={() =>
                 handleToggleLabel({
                   id: label.label_id,
                   board_id: boardId,
-                  name: label.labels.name,
-                  color: label.labels.color,
+                  name: label.labels?.name || "",
+                  color: label.labels?.color || "",
                   created_at: "",
                 })
               }
-              disabled={isLoading}
             >
               <X className="h-3 w-3" />
             </button>
@@ -173,7 +211,7 @@ export function TaskLabels({
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={handleCreateLabel} disabled={isLoading}>
+                  <Button size="sm" onClick={handleCreateLabel}>
                     Create
                   </Button>
                   <Button
@@ -210,7 +248,6 @@ export function TaskLabels({
                               isAssigned && "bg-secondary"
                             )}
                             onClick={() => handleToggleLabel(label)}
-                            disabled={isLoading}
                           >
                             <span
                               className="w-4 h-4 rounded-full shrink-0"

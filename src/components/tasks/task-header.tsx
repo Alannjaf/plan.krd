@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,30 +18,47 @@ import { updateTask, deleteTask, type TaskWithRelations } from "@/lib/actions/ta
 
 interface TaskHeaderProps {
   task: TaskWithRelations;
-  onUpdate: () => void;
+  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
   onClose: () => void;
+  onChanged: () => void;
 }
 
-export function TaskHeader({ task, onUpdate, onClose }: TaskHeaderProps) {
+export function TaskHeader({ task, setTask, onClose, onChanged }: TaskHeaderProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleSaveTitle = async () => {
-    if (title.trim() && title !== task.title) {
-      await updateTask(task.id, { title: title.trim() });
-      onUpdate();
+    if (!title.trim() || title === task.title) {
+      setIsEditing(false);
+      return;
     }
+
+    const oldTitle = task.title;
+    const newTitle = title.trim();
+
+    // Optimistic update
+    setTask((prev) => (prev ? { ...prev, title: newTitle } : prev));
+    onChanged();
     setIsEditing(false);
+
+    // Persist to database
+    const result = await updateTask(task.id, { title: newTitle });
+
+    // Rollback on error
+    if (!result.success) {
+      setTask((prev) => (prev ? { ...prev, title: oldTitle } : prev));
+      setTitle(oldTitle);
+    }
   };
 
   const handleDelete = async () => {
     setIsDeleting(true);
     const result = await deleteTask(task.id);
     if (result.success) {
+      onChanged();
       onClose();
-      onUpdate();
     }
     setIsDeleting(false);
     setShowDeleteDialog(false);

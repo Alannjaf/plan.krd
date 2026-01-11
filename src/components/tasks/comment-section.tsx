@@ -15,13 +15,11 @@ import { Loader2, Send } from "lucide-react";
 interface CommentSectionProps {
   taskId: string;
   workspaceId: string;
-  onUpdate: () => void;
 }
 
 export function CommentSection({
   taskId,
   workspaceId,
-  onUpdate,
 }: CommentSectionProps) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -45,7 +43,6 @@ export function CommentSection({
     const result = await createComment(taskId, newComment.trim());
     if (result.success) {
       loadComments();
-      onUpdate();
     }
     setNewComment("");
     setIsSubmitting(false);
@@ -102,10 +99,7 @@ export function CommentSection({
               key={comment.id}
               comment={comment}
               taskId={taskId}
-              onUpdate={() => {
-                loadComments();
-                onUpdate();
-              }}
+              onUpdate={loadComments}
             />
           ))}
         </div>

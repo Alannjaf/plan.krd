@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type Dispatch, type SetStateAction } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,27 +11,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { addAssignee, removeAssignee, getWorkspaceMembers } from "@/lib/actions/assignees";
-import { logActivity } from "@/lib/actions/activities";
+import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { Users, Plus, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface AssigneeData {
-  id: string;
-  user_id: string;
-  profiles: {
-    id: string;
-    email: string | null;
-    full_name: string | null;
-    avatar_url: string | null;
-  };
-}
-
-interface TaskAssigneesProps {
-  taskId: string;
-  workspaceId: string;
-  assignees: AssigneeData[];
-  onUpdate: () => void;
-}
 
 type WorkspaceMember = {
   user_id: string;
@@ -44,16 +26,22 @@ type WorkspaceMember = {
   };
 };
 
+interface TaskAssigneesProps {
+  task: TaskWithRelations;
+  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
+  workspaceId: string;
+  onChanged: () => void;
+}
+
 export function TaskAssignees({
-  taskId,
+  task,
+  setTask,
   workspaceId,
-  assignees,
-  onUpdate,
+  onChanged,
 }: TaskAssigneesProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [search, setSearch] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -66,6 +54,7 @@ export function TaskAssignees({
     setMembers(data as WorkspaceMember[]);
   };
 
+  const assignees = task.assignees || [];
   const assignedUserIds = assignees.map((a) => a.user_id);
 
   const filteredMembers = members.filter((m) => {
@@ -76,23 +65,47 @@ export function TaskAssignees({
   });
 
   const handleToggleAssignee = async (member: WorkspaceMember) => {
-    setIsLoading(true);
     const isAssigned = assignedUserIds.includes(member.user_id);
+    const oldAssignees = [...assignees];
 
     if (isAssigned) {
-      await removeAssignee(taskId, member.user_id);
-      await logActivity(taskId, "unassigned", {
-        assignee: member.profiles.full_name || member.profiles.email,
-      });
-    } else {
-      await addAssignee(taskId, member.user_id);
-      await logActivity(taskId, "assigned", {
-        assignee: member.profiles.full_name || member.profiles.email,
-      });
-    }
+      // Optimistic remove
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              assignees: prev.assignees?.filter((a) => a.user_id !== member.user_id),
+            }
+          : prev
+      );
+      onChanged();
 
-    onUpdate();
-    setIsLoading(false);
+      const result = await removeAssignee(task.id, member.user_id);
+      if (!result.success) {
+        setTask((prev) => (prev ? { ...prev, assignees: oldAssignees } : prev));
+      }
+    } else {
+      // Optimistic add
+      const newAssignee = {
+        id: `temp-${Date.now()}`,
+        user_id: member.user_id,
+        profiles: member.profiles,
+      };
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              assignees: [...(prev.assignees || []), newAssignee],
+            }
+          : prev
+      );
+      onChanged();
+
+      const result = await addAssignee(task.id, member.user_id);
+      if (!result.success) {
+        setTask((prev) => (prev ? { ...prev, assignees: oldAssignees } : prev));
+      }
+    }
   };
 
   const getInitials = (name: string | null, email: string | null) => {
@@ -121,13 +134,13 @@ export function TaskAssignees({
             className="flex items-center gap-2 bg-secondary/50 rounded-full pl-1 pr-2 py-1"
           >
             <Avatar className="h-6 w-6">
-              <AvatarImage src={assignee.profiles.avatar_url || undefined} />
+              <AvatarImage src={assignee.profiles?.avatar_url || undefined} />
               <AvatarFallback className="text-xs">
-                {getInitials(assignee.profiles.full_name, assignee.profiles.email)}
+                {getInitials(assignee.profiles?.full_name || null, assignee.profiles?.email || null)}
               </AvatarFallback>
             </Avatar>
             <span className="text-sm">
-              {assignee.profiles.full_name || assignee.profiles.email}
+              {assignee.profiles?.full_name || assignee.profiles?.email}
             </span>
             <button
               className="hover:text-destructive transition-colors"
@@ -135,10 +148,9 @@ export function TaskAssignees({
                 handleToggleAssignee({
                   user_id: assignee.user_id,
                   role: "",
-                  profiles: assignee.profiles,
+                  profiles: assignee.profiles!,
                 })
               }
-              disabled={isLoading}
             >
               <X className="h-3 w-3" />
             </button>
@@ -176,7 +188,6 @@ export function TaskAssignees({
                           isAssigned && "bg-secondary"
                         )}
                         onClick={() => handleToggleAssignee(member)}
-                        disabled={isLoading}
                       >
                         <Avatar className="h-6 w-6">
                           <AvatarImage src={member.profiles.avatar_url || undefined} />

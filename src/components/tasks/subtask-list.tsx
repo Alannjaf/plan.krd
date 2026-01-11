@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,57 +12,146 @@ import {
   toggleSubtask,
   type Subtask,
 } from "@/lib/actions/subtasks";
-import { logActivity } from "@/lib/actions/activities";
+import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { CheckSquare, Plus, Trash2, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SubtaskListProps {
-  taskId: string;
-  subtasks: Subtask[];
-  onUpdate: () => void;
+  task: TaskWithRelations;
+  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
+  onChanged: () => void;
 }
 
-export function SubtaskList({ taskId, subtasks, onUpdate }: SubtaskListProps) {
+export function SubtaskList({ task, setTask, onChanged }: SubtaskListProps) {
   const [newSubtask, setNewSubtask] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
 
+  const subtasks = task.subtasks || [];
   const completedCount = subtasks.filter((s) => s.completed).length;
   const progress = subtasks.length > 0 ? (completedCount / subtasks.length) * 100 : 0;
 
   const handleAddSubtask = async () => {
     if (!newSubtask.trim()) return;
     setIsAdding(true);
-    const result = await createSubtask(taskId, newSubtask.trim());
-    if (result.success) {
-      await logActivity(taskId, "subtask_added", { title: newSubtask.trim() });
-      onUpdate();
-    }
+
+    const tempId = `temp-${Date.now()}`;
+    const newItem: Subtask = {
+      id: tempId,
+      parent_task_id: task.id,
+      title: newSubtask.trim(),
+      completed: false,
+      position: subtasks.length,
+      created_at: new Date().toISOString(),
+    };
+
+    // Optimistic add
+    setTask((prev) =>
+      prev
+        ? {
+            ...prev,
+            subtasks: [...(prev.subtasks || []), newItem],
+          }
+        : prev
+    );
+    onChanged();
     setNewSubtask("");
+
+    const result = await createSubtask(task.id, newItem.title);
+    if (!result.success) {
+      // Rollback
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              subtasks: prev.subtasks?.filter((s) => s.id !== tempId),
+            }
+          : prev
+      );
+    }
     setIsAdding(false);
   };
 
   const handleToggle = async (subtask: Subtask) => {
-    await toggleSubtask(subtask.id, !subtask.completed);
-    if (!subtask.completed) {
-      await logActivity(taskId, "subtask_completed", { title: subtask.title });
+    const newCompleted = !subtask.completed;
+
+    // Optimistic toggle
+    setTask((prev) =>
+      prev
+        ? {
+            ...prev,
+            subtasks: prev.subtasks?.map((s) =>
+              s.id === subtask.id ? { ...s, completed: newCompleted } : s
+            ),
+          }
+        : prev
+    );
+    onChanged();
+
+    const result = await toggleSubtask(subtask.id, newCompleted);
+    if (!result.success) {
+      // Rollback
+      setTask((prev) =>
+        prev
+          ? {
+              ...prev,
+              subtasks: prev.subtasks?.map((s) =>
+                s.id === subtask.id ? { ...s, completed: subtask.completed } : s
+              ),
+            }
+          : prev
+      );
     }
-    onUpdate();
   };
 
   const handleDelete = async (subtask: Subtask) => {
-    await deleteSubtask(subtask.id);
-    await logActivity(taskId, "subtask_deleted", { title: subtask.title });
-    onUpdate();
+    const oldSubtasks = [...subtasks];
+
+    // Optimistic delete
+    setTask((prev) =>
+      prev
+        ? {
+            ...prev,
+            subtasks: prev.subtasks?.filter((s) => s.id !== subtask.id),
+          }
+        : prev
+    );
+    onChanged();
+
+    const result = await deleteSubtask(subtask.id);
+    if (!result.success) {
+      // Rollback
+      setTask((prev) => (prev ? { ...prev, subtasks: oldSubtasks } : prev));
+    }
   };
 
   const handleSaveEdit = async (subtaskId: string) => {
     if (!editingTitle.trim()) return;
-    await updateSubtask(subtaskId, { title: editingTitle.trim() });
+
+    const oldSubtasks = [...subtasks];
+
+    // Optimistic update
+    setTask((prev) =>
+      prev
+        ? {
+            ...prev,
+            subtasks: prev.subtasks?.map((s) =>
+              s.id === subtaskId ? { ...s, title: editingTitle.trim() } : s
+            ),
+          }
+        : prev
+    );
+    onChanged();
+
+    const result = await updateSubtask(subtaskId, { title: editingTitle.trim() });
+    if (!result.success) {
+      // Rollback
+      setTask((prev) => (prev ? { ...prev, subtasks: oldSubtasks } : prev));
+    }
+
     setEditingId(null);
     setEditingTitle("");
-    onUpdate();
   };
 
   return (
@@ -79,9 +168,7 @@ export function SubtaskList({ taskId, subtasks, onUpdate }: SubtaskListProps) {
         </div>
       </div>
 
-      {subtasks.length > 0 && (
-        <Progress value={progress} className="h-1.5" />
-      )}
+      {subtasks.length > 0 && <Progress value={progress} className="h-1.5" />}
 
       <div className="space-y-1">
         {subtasks.map((subtask) => (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type Dispatch, type SetStateAction } from "react";
 import {
   Select,
   SelectContent,
@@ -8,14 +8,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { updateTask } from "@/lib/actions/tasks";
+import { updateTask, type TaskWithRelations } from "@/lib/actions/tasks";
 import { Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+type Priority = "low" | "medium" | "high" | "urgent" | null;
+
 interface TaskPriorityProps {
-  taskId: string;
-  priority: "low" | "medium" | "high" | "urgent" | null;
-  onUpdate: () => void;
+  task: TaskWithRelations;
+  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
+  onChanged: () => void;
 }
 
 const priorities = [
@@ -25,18 +27,25 @@ const priorities = [
   { value: "low", label: "Low", color: "text-blue-500" },
 ] as const;
 
-export function TaskPriority({ taskId, priority, onUpdate }: TaskPriorityProps) {
-  const [isUpdating, setIsUpdating] = useState(false);
-
+export function TaskPriority({ task, setTask, onChanged }: TaskPriorityProps) {
   const handleChange = async (value: string) => {
-    setIsUpdating(true);
-    const newPriority = value === "none" ? null : (value as typeof priority);
-    await updateTask(taskId, { priority: newPriority });
-    onUpdate();
-    setIsUpdating(false);
+    const newPriority: Priority = value === "none" ? null : (value as Priority);
+    const oldPriority = task.priority;
+
+    // Optimistic update
+    setTask((prev) => (prev ? { ...prev, priority: newPriority } : prev));
+    onChanged();
+
+    // Persist to database
+    const result = await updateTask(task.id, { priority: newPriority });
+
+    // Rollback on error
+    if (!result.success) {
+      setTask((prev) => (prev ? { ...prev, priority: oldPriority } : prev));
+    }
   };
 
-  const currentPriority = priorities.find((p) => p.value === priority);
+  const currentPriority = priorities.find((p) => p.value === task.priority);
 
   return (
     <div className="space-y-2">
@@ -45,11 +54,7 @@ export function TaskPriority({ taskId, priority, onUpdate }: TaskPriorityProps) 
         Priority
       </div>
 
-      <Select
-        value={priority || "none"}
-        onValueChange={handleChange}
-        disabled={isUpdating}
-      >
+      <Select value={task.priority || "none"} onValueChange={handleChange}>
         <SelectTrigger className="w-full">
           <SelectValue placeholder="Set priority">
             {currentPriority ? (

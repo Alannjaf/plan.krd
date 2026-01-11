@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   getAttachments,
   uploadAttachment,
@@ -11,12 +10,10 @@ import {
   getAttachmentUrl,
   type Attachment,
 } from "@/lib/actions/attachments";
+import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { isImageFile, isPdfFile, formatFileSize } from "@/lib/utils/file-helpers";
-import { logActivity } from "@/lib/actions/activities";
 import {
-  Paperclip,
   Upload,
-  X,
   File,
   Image as ImageIcon,
   FileText,
@@ -27,11 +24,12 @@ import {
 import { cn } from "@/lib/utils";
 
 interface AttachmentListProps {
-  taskId: string;
-  onUpdate: () => void;
+  task: TaskWithRelations;
+  setTask: Dispatch<SetStateAction<TaskWithRelations | null>>;
+  onChanged: () => void;
 }
 
-export function AttachmentList({ taskId, onUpdate }: AttachmentListProps) {
+export function AttachmentList({ task, setTask, onChanged }: AttachmentListProps) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -39,11 +37,11 @@ export function AttachmentList({ taskId, onUpdate }: AttachmentListProps) {
 
   useEffect(() => {
     loadAttachments();
-  }, [taskId]);
+  }, [task.id]);
 
   const loadAttachments = async () => {
     setIsLoading(true);
-    const data = await getAttachments(taskId);
+    const data = await getAttachments(task.id);
     setAttachments(data);
     setIsLoading(false);
   };
@@ -55,18 +53,24 @@ export function AttachmentList({ taskId, onUpdate }: AttachmentListProps) {
 
       for (let i = 0; i < acceptedFiles.length; i++) {
         const file = acceptedFiles[i];
-        const result = await uploadAttachment(taskId, file);
-        if (result.success) {
-          await logActivity(taskId, "attachment_added", { fileName: file.name });
+        const result = await uploadAttachment(task.id, file);
+        if (result.success && result.attachment) {
+          // Update local attachments
+          setAttachments((prev) => [result.attachment!, ...prev]);
+          // Update task attachment count
+          setTask((prev) =>
+            prev
+              ? { ...prev, attachments_count: prev.attachments_count + 1 }
+              : prev
+          );
+          onChanged();
         }
         setUploadProgress(((i + 1) / acceptedFiles.length) * 100);
       }
 
-      loadAttachments();
-      onUpdate();
       setIsUploading(false);
     },
-    [taskId, onUpdate]
+    [task.id, setTask, onChanged]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -75,13 +79,26 @@ export function AttachmentList({ taskId, onUpdate }: AttachmentListProps) {
   });
 
   const handleDelete = async (attachment: Attachment) => {
+    const oldAttachments = [...attachments];
+
+    // Optimistic delete
+    setAttachments((prev) => prev.filter((a) => a.id !== attachment.id));
+    setTask((prev) =>
+      prev
+        ? { ...prev, attachments_count: Math.max(0, prev.attachments_count - 1) }
+        : prev
+    );
+    onChanged();
+
     const result = await deleteAttachment(attachment.id);
-    if (result.success) {
-      await logActivity(taskId, "attachment_deleted", {
-        fileName: attachment.file_name,
-      });
-      loadAttachments();
-      onUpdate();
+    if (!result.success) {
+      // Rollback
+      setAttachments(oldAttachments);
+      setTask((prev) =>
+        prev
+          ? { ...prev, attachments_count: prev.attachments_count + 1 }
+          : prev
+      );
     }
   };
 
@@ -90,12 +107,6 @@ export function AttachmentList({ taskId, onUpdate }: AttachmentListProps) {
     if (url) {
       window.open(url, "_blank");
     }
-  };
-
-  const getFileIcon = (fileType: string) => {
-    if (isImageFile(fileType)) return <ImageIcon className="h-8 w-8" />;
-    if (isPdfFile(fileType)) return <FileText className="h-8 w-8" />;
-    return <File className="h-8 w-8" />;
   };
 
   return (
