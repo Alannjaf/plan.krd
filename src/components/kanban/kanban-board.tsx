@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   DragDropContext,
   type DropResult,
@@ -9,6 +9,7 @@ import {
 import { KanbanColumn } from "./kanban-column";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { CreateListDialog } from "./create-list-dialog";
+import { BoardToolbar, type SortOption, type FilterPriority, type FilterDueDate } from "./board-toolbar";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import { reorderTasksInList } from "@/lib/actions/tasks";
@@ -21,6 +22,14 @@ interface KanbanBoardProps {
   tasks: Task[];
 }
 
+// Priority order for sorting
+const priorityOrder: Record<string, number> = {
+  urgent: 4,
+  high: 3,
+  medium: 2,
+  low: 1,
+};
+
 export function KanbanBoard({ boardId, lists, tasks }: KanbanBoardProps) {
   const [localLists] = useState(lists);
   const [localTasks, setLocalTasks] = useState(tasks);
@@ -28,22 +37,108 @@ export function KanbanBoard({ boardId, lists, tasks }: KanbanBoardProps) {
   const [createTaskListId, setCreateTaskListId] = useState<string | null>(null);
   const [showCreateList, setShowCreateList] = useState(false);
 
-  // Group tasks by list
-  const tasksByList = localTasks.reduce(
-    (acc, task) => {
-      if (!acc[task.list_id]) {
-        acc[task.list_id] = [];
-      }
-      acc[task.list_id].push(task);
-      return acc;
-    },
-    {} as Record<string, Task[]>
-  );
+  // Filter and sort state
+  const [sortBy, setSortBy] = useState<SortOption>("position");
+  const [filterPriority, setFilterPriority] = useState<FilterPriority>("all");
+  const [filterDueDate, setFilterDueDate] = useState<FilterDueDate>("all");
 
-  // Sort tasks by position within each list
-  Object.keys(tasksByList).forEach((listId) => {
-    tasksByList[listId].sort((a, b) => a.position - b.position);
-  });
+  // Filter tasks
+  const filteredTasks = useMemo(() => {
+    let filtered = [...localTasks];
+
+    // Filter by priority
+    if (filterPriority !== "all") {
+      filtered = filtered.filter((task) => task.priority === filterPriority);
+    }
+
+    // Filter by due date
+    if (filterDueDate !== "all") {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const weekFromNow = new Date(today);
+      weekFromNow.setDate(weekFromNow.getDate() + 7);
+
+      filtered = filtered.filter((task) => {
+        if (filterDueDate === "no-date") {
+          return !task.due_date;
+        }
+        if (!task.due_date) return false;
+
+        const dueDate = new Date(task.due_date);
+        dueDate.setHours(0, 0, 0, 0);
+
+        switch (filterDueDate) {
+          case "overdue":
+            return dueDate < today;
+          case "today":
+            return dueDate.getTime() === today.getTime();
+          case "week":
+            return dueDate >= today && dueDate <= weekFromNow;
+          default:
+            return true;
+        }
+      });
+    }
+
+    return filtered;
+  }, [localTasks, filterPriority, filterDueDate]);
+
+  // Sort tasks
+  const sortTasks = useCallback((tasksToSort: Task[]): Task[] => {
+    if (sortBy === "position") {
+      return [...tasksToSort].sort((a, b) => a.position - b.position);
+    }
+
+    return [...tasksToSort].sort((a, b) => {
+      switch (sortBy) {
+        case "name-asc":
+          return a.title.localeCompare(b.title);
+        case "name-desc":
+          return b.title.localeCompare(a.title);
+        case "due-asc":
+          if (!a.due_date && !b.due_date) return 0;
+          if (!a.due_date) return 1;
+          if (!b.due_date) return -1;
+          return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+        case "due-desc":
+          if (!a.due_date && !b.due_date) return 0;
+          if (!a.due_date) return 1;
+          if (!b.due_date) return -1;
+          return new Date(b.due_date).getTime() - new Date(a.due_date).getTime();
+        case "priority-desc":
+          return (priorityOrder[b.priority || "medium"] || 0) - (priorityOrder[a.priority || "medium"] || 0);
+        case "priority-asc":
+          return (priorityOrder[a.priority || "medium"] || 0) - (priorityOrder[b.priority || "medium"] || 0);
+        case "created-desc":
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        case "created-asc":
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        default:
+          return a.position - b.position;
+      }
+    });
+  }, [sortBy]);
+
+  // Group and sort tasks by list
+  const tasksByList = useMemo(() => {
+    const grouped = filteredTasks.reduce(
+      (acc, task) => {
+        if (!acc[task.list_id]) {
+          acc[task.list_id] = [];
+        }
+        acc[task.list_id].push(task);
+        return acc;
+      },
+      {} as Record<string, Task[]>
+    );
+
+    // Sort tasks within each list
+    Object.keys(grouped).forEach((listId) => {
+      grouped[listId] = sortTasks(grouped[listId]);
+    });
+
+    return grouped;
+  }, [filteredTasks, sortTasks]);
 
   const handleDragStart = useCallback((_: DragStart) => {
     setIsDragging(true);
@@ -152,8 +247,17 @@ export function KanbanBoard({ boardId, lists, tasks }: KanbanBoardProps) {
 
   return (
     <>
+      <BoardToolbar
+        sortBy={sortBy}
+        onSortChange={setSortBy}
+        filterPriority={filterPriority}
+        onFilterPriorityChange={setFilterPriority}
+        filterDueDate={filterDueDate}
+        onFilterDueDateChange={setFilterDueDate}
+      />
+
       <DragDropContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="flex gap-4 p-6 overflow-x-auto min-h-[calc(100vh-8rem)]">
+        <div className="flex gap-4 overflow-x-auto min-h-[calc(100vh-12rem)]">
           {localLists.map((list) => (
             <KanbanColumn
               key={list.id}
