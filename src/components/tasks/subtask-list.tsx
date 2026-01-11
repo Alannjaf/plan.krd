@@ -41,7 +41,7 @@ type WorkspaceMember = {
     email: string | null;
     full_name: string | null;
     avatar_url: string | null;
-  };
+  } | null;
 };
 
 export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskListProps) {
@@ -222,7 +222,7 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
   const handleAssigneeChange = async (subtask: Subtask, member: WorkspaceMember | null) => {
     const oldSubtasks = [...subtasks];
     const newAssigneeId = member?.user_id || null;
-    const newAssignee = member
+    const newAssignee = member?.profiles
       ? {
           id: member.profiles.id,
           email: member.profiles.email,
@@ -401,7 +401,7 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
                         Unassign
                       </button>
                     )}
-                    {members.map((member) => (
+                    {members.filter((m) => m.profiles).map((member) => (
                       <button
                         key={member.user_id}
                         className={cn(
@@ -411,13 +411,13 @@ export function SubtaskList({ task, workspaceId, setTask, onChanged }: SubtaskLi
                         onClick={() => handleAssigneeChange(subtask, member)}
                       >
                         <Avatar className="h-5 w-5">
-                          <AvatarImage src={member.profiles.avatar_url || undefined} />
+                          <AvatarImage src={member.profiles?.avatar_url || undefined} />
                           <AvatarFallback className="text-[10px]">
-                            {getInitials(member.profiles.full_name, member.profiles.email)}
+                            {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
                           </AvatarFallback>
                         </Avatar>
                         <span className="text-sm truncate">
-                          {member.profiles.full_name || member.profiles.email}
+                          {member.profiles?.full_name || member.profiles?.email || "Unknown"}
                         </span>
                       </button>
                     ))}

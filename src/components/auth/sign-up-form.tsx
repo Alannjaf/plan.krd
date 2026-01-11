@@ -13,6 +13,7 @@ export function SignUpForm() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
 
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -24,6 +25,11 @@ export function SignUpForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!fullName.trim()) {
+      setError("Please enter your name");
+      return;
+    }
 
     if (password !== confirmPassword) {
       setError("Passwords do not match");
@@ -37,7 +43,7 @@ export function SignUpForm() {
 
     setIsLoading(true);
 
-    const result = await signUpWithEmail(email, password, next || undefined);
+    const result = await signUpWithEmail(email, password, fullName.trim(), next || undefined);
 
     if (!result.success) {
       setError(result.error || "Failed to sign up");
@@ -83,6 +89,19 @@ export function SignUpForm() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="fullName">Full Name</Label>
+          <Input
+            id="fullName"
+            type="text"
+            placeholder="John Doe"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            required
+            disabled={isLoading}
+          />
+        </div>
+
         <div className="space-y-2">
           <Label htmlFor="email">Email</Label>
           <Input

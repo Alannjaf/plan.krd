@@ -23,7 +23,7 @@ type WorkspaceMember = {
     email: string | null;
     full_name: string | null;
     avatar_url: string | null;
-  };
+  } | null;
 };
 
 interface TaskAssigneesProps {
@@ -58,6 +58,7 @@ export function TaskAssignees({
   const assignedUserIds = assignees.map((a) => a.user_id);
 
   const filteredMembers = members.filter((m) => {
+    if (!m.profiles) return false;
     const name = m.profiles.full_name?.toLowerCase() || "";
     const email = m.profiles.email?.toLowerCase() || "";
     const query = search.toLowerCase();
@@ -89,7 +90,12 @@ export function TaskAssignees({
       const newAssignee = {
         id: `temp-${Date.now()}`,
         user_id: member.user_id,
-        profiles: member.profiles,
+        profiles: member.profiles || {
+          id: member.user_id,
+          email: null,
+          full_name: null,
+          avatar_url: null,
+        },
       };
       setTask((prev) =>
         prev
@@ -190,13 +196,13 @@ export function TaskAssignees({
                         onClick={() => handleToggleAssignee(member)}
                       >
                         <Avatar className="h-6 w-6">
-                          <AvatarImage src={member.profiles.avatar_url || undefined} />
+                          <AvatarImage src={member.profiles?.avatar_url || undefined} />
                           <AvatarFallback className="text-xs">
-                            {getInitials(member.profiles.full_name, member.profiles.email)}
+                            {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
                           </AvatarFallback>
                         </Avatar>
                         <span className="flex-1 text-left text-sm truncate">
-                          {member.profiles.full_name || member.profiles.email}
+                          {member.profiles?.full_name || member.profiles?.email || "Unknown"}
                         </span>
                         {isAssigned && <Check className="h-4 w-4 text-primary" />}
                       </button>

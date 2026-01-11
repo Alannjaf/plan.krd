@@ -82,6 +82,7 @@ export async function signInWithEmail(
 export async function signUpWithEmail(
   email: string,
   password: string,
+  fullName: string,
   redirectTo?: string
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
@@ -98,6 +99,10 @@ export async function signUpWithEmail(
     password,
     options: {
       emailRedirectTo: confirmUrl,
+      data: {
+        full_name: fullName,
+        avatar_url: null,
+      },
     },
   });
 
