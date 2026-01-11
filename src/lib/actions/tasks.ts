@@ -58,7 +58,7 @@ export async function getTask(taskId: string): Promise<TaskWithRelations | null>
       assignees:task_assignees(
         id,
         user_id,
-        profiles(id, email, full_name, avatar_url)
+        profiles:profiles!task_assignees_user_id_fkey(id, email, full_name, avatar_url)
       ),
       labels:task_labels(
         id,
@@ -153,7 +153,7 @@ export async function getTasksWithRelations(boardId: string): Promise<TaskWithRe
   const [assigneesResult, labelsResult, subtasksResult] = await Promise.all([
     supabase
       .from("task_assignees")
-      .select("id, task_id, user_id, profiles(id, email, full_name, avatar_url)")
+      .select("id, task_id, user_id, profiles:profiles!task_assignees_user_id_fkey(id, email, full_name, avatar_url)")
       .in("task_id", taskIds),
     supabase
       .from("task_labels")

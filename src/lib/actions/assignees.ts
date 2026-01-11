@@ -21,7 +21,7 @@ export async function getTaskAssignees(taskId: string): Promise<Assignee[]> {
 
   const { data, error } = await supabase
     .from("task_assignees")
-    .select("*, profiles(id, email, full_name, avatar_url)")
+    .select("*, profiles:profiles!task_assignees_user_id_fkey(id, email, full_name, avatar_url)")
     .eq("task_id", taskId);
 
   if (error) {
