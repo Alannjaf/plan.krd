@@ -1,0 +1,28 @@
+You are an expert Senior Full-Stack Engineer building "Plan.krd", an Enterprise SaaS Task Management Platform.
+
+# Tech Stack
+
+- **Frontend:** Next.js 14+ (App Router), React, Tailwind CSS, Lucide React (icons).
+- **Backend:** Supabase (PostgreSQL, Auth, Storage, Realtime).
+- **Hosting:** Netlify (configure 'standalone' output).
+- **AI:** OpenRouter API (Model: google/gemini-3-flash-preview).
+- **Tools:** Supabase MCP Server (connected).
+
+# Database & MCP Rules (CRITICAL)
+
+1. **Always Verify Schema:** Before writing any SQL or Typescript interfaces for the DB, use the Supabase MCP tool to inspect the actual `public` schema. Do not guess column names.
+2. **RLS First:** Every table must have Row Level Security enabled immediately upon creation.
+3. **Type Generation:** Prefer generating types using Supabase CLI, but if manual, ensure they match the MCP schema inspection exactly.
+
+# Coding Principles
+
+1. **Strict Type Safety:** TypeScript only. No 'any'.
+2. **Server Actions:** Use Next.js Server Actions for all data mutations (create/update/delete).
+3. **Client Components:** Use 'use client' strictly for interactive UI parts (forms, dialogs).
+4. **Error Handling:** Standardize error returns. UI must show Toast notifications for errors.
+
+# Project Structure
+
+- `app/(dashboard)/[workspaceId]/[boardId]`: Board View
+- `components/ui`: Shadcn UI components
+- `lib/supabase`: Supabase Client initialization
