@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
   DropdownMenu,
@@ -23,17 +24,23 @@ interface WorkspaceCardProps {
 export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const router = useRouter();
+
+  const handleCardClick = () => {
+    router.push(`/${workspace.id}`);
+  };
 
   return (
     <>
-      <Card className="h-full bg-card/50 backdrop-blur border-border/50 hover:border-primary/30 hover:shadow-lg transition-all duration-200 cursor-pointer group">
+      <Card
+        className="h-full bg-card/50 backdrop-blur border-border/50 hover:border-primary/30 hover:shadow-lg transition-all duration-200 cursor-pointer group"
+        onClick={handleCardClick}
+      >
         <CardHeader>
           <div className="flex items-center justify-between mb-3">
-            <Link href={`/${workspace.id}`}>
-              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                <Folder className="w-5 h-5 text-primary" />
-              </div>
-            </Link>
+            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+              <Folder className="w-5 h-5 text-primary" />
+            </div>
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Users className="w-3 h-3" />
@@ -51,7 +58,7 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
                     <span className="sr-only">Open menu</span>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                   <DropdownMenuItem asChild>
                     <Link href={`/${workspace.id}/settings`}>
                       <Settings className="mr-2 h-4 w-4" />
@@ -74,16 +81,14 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
               </DropdownMenu>
             </div>
           </div>
-          <Link href={`/${workspace.id}`}>
-            <CardTitle className="text-lg group-hover:text-primary transition-colors">
-              {workspace.name}
-            </CardTitle>
-            {workspace.description && (
-              <CardDescription className="line-clamp-2">
-                {workspace.description}
-              </CardDescription>
-            )}
-          </Link>
+          <CardTitle className="text-lg group-hover:text-primary transition-colors">
+            {workspace.name}
+          </CardTitle>
+          {workspace.description && (
+            <CardDescription className="line-clamp-2">
+              {workspace.description}
+            </CardDescription>
+          )}
         </CardHeader>
       </Card>
 
