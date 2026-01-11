@@ -4,6 +4,7 @@ import { getLists } from "@/lib/actions/lists";
 import { getTasksWithRelations } from "@/lib/actions/tasks";
 import { notFound } from "next/navigation";
 import { BoardContent } from "@/components/boards/board-content";
+import { Suspense } from "react";
 
 interface BoardPageProps {
   params: Promise<{ workspaceId: string; boardId: string }>;
@@ -24,11 +25,13 @@ export default async function BoardPage({ params }: BoardPageProps) {
   }
 
   return (
-    <BoardContent
-      workspace={{ id: workspace.id, name: workspace.name }}
-      board={board}
-      lists={lists}
-      initialTasks={tasks}
-    />
+    <Suspense fallback={<div>Loading...</div>}>
+      <BoardContent
+        workspace={{ id: workspace.id, name: workspace.name }}
+        board={board}
+        lists={lists}
+        initialTasks={tasks}
+      />
+    </Suspense>
   );
 }
