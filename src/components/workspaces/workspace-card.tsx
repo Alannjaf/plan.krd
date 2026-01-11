@@ -13,18 +13,23 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Folder, Users, MoreHorizontal, Pencil, Trash2, Settings } from "lucide-react";
-import type { Workspace } from "@/lib/actions/workspaces";
+import type { WorkspaceWithMeta } from "@/lib/actions/workspaces";
 import { EditWorkspaceDialog } from "./edit-workspace-dialog";
 import { DeleteWorkspaceDialog } from "./delete-workspace-dialog";
 
 interface WorkspaceCardProps {
-  workspace: Workspace;
+  workspace: WorkspaceWithMeta;
 }
 
 export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const router = useRouter();
+
+  const isOwner = workspace.current_user_role === "owner";
+  const isAdmin = workspace.current_user_role === "admin";
+  const canEdit = isOwner || isAdmin;
+  const canDelete = isOwner;
 
   const handleCardClick = () => {
     router.push(`/${workspace.id}`);
@@ -44,7 +49,7 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Users className="w-3 h-3" />
-                <span>1</span>
+                <span>{workspace.member_count}</span>
               </div>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -59,24 +64,40 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenuItem asChild>
-                    <Link href={`/${workspace.id}/settings`}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      Settings
-                    </Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
-                    <Pencil className="mr-2 h-4 w-4" />
-                    Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setShowDeleteDialog(true)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </DropdownMenuItem>
+                  {canEdit && (
+                    <DropdownMenuItem asChild>
+                      <Link href={`/${workspace.id}/settings`}>
+                        <Settings className="mr-2 h-4 w-4" />
+                        Settings
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {canEdit && (
+                    <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {canDelete && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => setShowDeleteDialog(true)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  {!canEdit && !canDelete && (
+                    <DropdownMenuItem asChild>
+                      <Link href={`/${workspace.id}`}>
+                        <Folder className="mr-2 h-4 w-4" />
+                        Open
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -92,17 +113,21 @@ export function WorkspaceCard({ workspace }: WorkspaceCardProps) {
         </CardHeader>
       </Card>
 
-      <EditWorkspaceDialog
-        workspace={workspace}
-        open={showEditDialog}
-        onOpenChange={setShowEditDialog}
-      />
+      {canEdit && (
+        <EditWorkspaceDialog
+          workspace={workspace}
+          open={showEditDialog}
+          onOpenChange={setShowEditDialog}
+        />
+      )}
 
-      <DeleteWorkspaceDialog
-        workspace={workspace}
-        open={showDeleteDialog}
-        onOpenChange={setShowDeleteDialog}
-      />
+      {canDelete && (
+        <DeleteWorkspaceDialog
+          workspace={workspace}
+          open={showDeleteDialog}
+          onOpenChange={setShowDeleteDialog}
+        />
+      )}
     </>
   );
 }

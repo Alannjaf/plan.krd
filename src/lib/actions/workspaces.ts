@@ -13,6 +13,11 @@ export type Workspace = {
   updated_at: string;
 };
 
+export type WorkspaceWithMeta = Workspace & {
+  member_count: number;
+  current_user_role: "owner" | "admin" | "member" | "viewer" | "commenter" | null;
+};
+
 export type WorkspaceMember = {
   id: string;
   workspace_id: string;
@@ -26,12 +31,21 @@ export type WorkspaceMember = {
   };
 };
 
-export async function getWorkspaces(): Promise<Workspace[]> {
+export async function getWorkspaces(): Promise<WorkspaceWithMeta[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  // Get workspaces with member count
+  const { data: workspaces, error } = await supabase
     .from("workspaces")
-    .select("*")
+    .select("*, workspace_members(count)")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -39,7 +53,36 @@ export async function getWorkspaces(): Promise<Workspace[]> {
     return [];
   }
 
-  return data || [];
+  if (!workspaces) {
+    return [];
+  }
+
+  // Get user's role for each workspace
+  const { data: memberships } = await supabase
+    .from("workspace_members")
+    .select("workspace_id, role")
+    .eq("user_id", user.id);
+
+  const membershipMap = new Map(
+    memberships?.map((m) => [m.workspace_id, m.role]) || []
+  );
+
+  return workspaces.map((workspace) => {
+    const memberCount = (workspace.workspace_members as { count: number }[])?.[0]?.count || 0;
+    const userRole = membershipMap.get(workspace.id) || null;
+
+    return {
+      id: workspace.id,
+      name: workspace.name,
+      description: workspace.description,
+      slug: workspace.slug,
+      owner_id: workspace.owner_id,
+      created_at: workspace.created_at,
+      updated_at: workspace.updated_at,
+      member_count: memberCount,
+      current_user_role: userRole,
+    };
+  });
 }
 
 export async function getWorkspace(workspaceId: string): Promise<Workspace | null> {
