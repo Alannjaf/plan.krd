@@ -12,13 +12,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createTask, type Task } from "@/lib/actions/tasks";
+import { createTask, type TaskWithRelations } from "@/lib/actions/tasks";
 
 interface CreateTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   listId: string;
-  onTaskCreated: (task: Task) => void;
+  onTaskCreated: (task: TaskWithRelations) => void;
 }
 
 export function CreateTaskDialog({
@@ -39,7 +39,16 @@ export function CreateTaskDialog({
     setIsLoading(false);
 
     if (result.success && result.task) {
-      onTaskCreated(result.task);
+      // Create a TaskWithRelations object with empty relations
+      const taskWithRelations: TaskWithRelations = {
+        ...result.task,
+        assignees: [],
+        labels: [],
+        subtasks: [],
+        attachments_count: 0,
+        comments_count: 0,
+      };
+      onTaskCreated(taskWithRelations);
       setTitle("");
     }
   };

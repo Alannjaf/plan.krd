@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logActivity } from "./activities";
 
 export type Task = {
   id: string;
@@ -10,11 +11,88 @@ export type Task = {
   description: string | null;
   position: number;
   priority: "low" | "medium" | "high" | "urgent" | null;
+  start_date: string | null;
   due_date: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
 };
+
+export type TaskWithRelations = Task & {
+  assignees: Array<{
+    id: string;
+    user_id: string;
+    profiles: {
+      id: string;
+      email: string | null;
+      full_name: string | null;
+      avatar_url: string | null;
+    };
+  }>;
+  labels: Array<{
+    id: string;
+    label_id: string;
+    labels: {
+      id: string;
+      name: string;
+      color: string;
+    };
+  }>;
+  subtasks: Array<{
+    id: string;
+    title: string;
+    completed: boolean;
+    position: number;
+  }>;
+  attachments_count: number;
+  comments_count: number;
+};
+
+export async function getTask(taskId: string): Promise<TaskWithRelations | null> {
+  const supabase = await createClient();
+
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .select(`
+      *,
+      assignees:task_assignees(
+        id,
+        user_id,
+        profiles(id, email, full_name, avatar_url)
+      ),
+      labels:task_labels(
+        id,
+        label_id,
+        labels(id, name, color)
+      ),
+      subtasks(id, title, completed, position)
+    `)
+    .eq("id", taskId)
+    .single();
+
+  if (error) {
+    console.error("Error fetching task:", error);
+    return null;
+  }
+
+  // Get counts for attachments and comments
+  const [{ count: attachments_count }, { count: comments_count }] = await Promise.all([
+    supabase
+      .from("attachments")
+      .select("*", { count: "exact", head: true })
+      .eq("task_id", taskId),
+    supabase
+      .from("comments")
+      .select("*", { count: "exact", head: true })
+      .eq("task_id", taskId),
+  ]);
+
+  return {
+    ...task,
+    attachments_count: attachments_count || 0,
+    comments_count: comments_count || 0,
+  } as TaskWithRelations;
+}
 
 export async function getTasks(listId: string): Promise<Task[]> {
   const supabase = await createClient();
@@ -50,12 +128,48 @@ export async function getTasksByBoard(boardId: string): Promise<Task[]> {
   return data || [];
 }
 
+export async function getTasksWithRelations(boardId: string): Promise<TaskWithRelations[]> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("tasks")
+    .select(`
+      *,
+      lists!inner(board_id),
+      assignees:task_assignees(
+        id,
+        user_id,
+        profiles(id, email, full_name, avatar_url)
+      ),
+      labels:task_labels(
+        id,
+        label_id,
+        labels(id, name, color)
+      ),
+      subtasks(id, title, completed, position)
+    `)
+    .eq("lists.board_id", boardId)
+    .order("position", { ascending: true });
+
+  if (error) {
+    console.error("Error fetching tasks with relations:", error);
+    return [];
+  }
+
+  return (data || []).map((task) => ({
+    ...task,
+    attachments_count: 0,
+    comments_count: 0,
+  })) as TaskWithRelations[];
+}
+
 export async function createTask(
   listId: string,
   title: string,
   options?: {
     description?: string;
     priority?: "low" | "medium" | "high" | "urgent";
+    start_date?: string;
     due_date?: string;
   }
 ): Promise<{ success: boolean; task?: Task; error?: string }> {
@@ -84,6 +198,7 @@ export async function createTask(
       title,
       description: options?.description || null,
       priority: options?.priority || null,
+      start_date: options?.start_date || null,
       due_date: options?.due_date || null,
       position,
       created_by: user?.id || null,
@@ -96,6 +211,9 @@ export async function createTask(
     return { success: false, error: error.message };
   }
 
+  // Log activity
+  await logActivity(data.id, "created", { title });
+
   return { success: true, task: data };
 }
 
@@ -105,19 +223,46 @@ export async function updateTask(
     title?: string;
     description?: string | null;
     priority?: "low" | "medium" | "high" | "urgent" | null;
+    start_date?: string | null;
     due_date?: string | null;
   }
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
+  // Get current task for activity logging
+  const { data: currentTask } = await supabase
+    .from("tasks")
+    .select("title, description, priority, start_date, due_date")
+    .eq("id", taskId)
+    .single();
+
   const { error } = await supabase
     .from("tasks")
-    .update(updates)
+    .update({ ...updates, updated_at: new Date().toISOString() })
     .eq("id", taskId);
 
   if (error) {
     console.error("Error updating task:", error);
     return { success: false, error: error.message };
+  }
+
+  // Log activities for changes
+  if (currentTask) {
+    if (updates.priority !== undefined && updates.priority !== currentTask.priority) {
+      await logActivity(taskId, "priority_changed", {
+        from: currentTask.priority,
+        to: updates.priority,
+      });
+    }
+    if (updates.due_date !== undefined && updates.due_date !== currentTask.due_date) {
+      await logActivity(taskId, "due_date_changed", {
+        from: currentTask.due_date,
+        to: updates.due_date,
+      });
+    }
+    if (updates.description !== undefined && updates.description !== currentTask.description) {
+      await logActivity(taskId, "description_changed", {});
+    }
   }
 
   return { success: true };
@@ -189,6 +334,12 @@ export async function moveTask(
     }
   } else {
     // Moving to a different list
+    // Get list names for activity log
+    const [{ data: sourceList }, { data: targetList }] = await Promise.all([
+      supabase.from("lists").select("name").eq("id", sourceListId).single(),
+      supabase.from("lists").select("name").eq("id", targetListId).single(),
+    ]);
+
     // Update positions in source list (shift down)
     await supabase.rpc("decrement_positions_after", {
       p_list_id: sourceListId,
@@ -222,6 +373,12 @@ export async function moveTask(
     if (error) {
       return { success: false, error: error.message };
     }
+
+    // Log activity
+    await logActivity(taskId, "moved", {
+      from: sourceList?.name || "Unknown",
+      to: targetList?.name || "Unknown",
+    });
   }
 
   return { success: true };

@@ -9,24 +9,26 @@ import {
 import { KanbanColumn } from "./kanban-column";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { CreateListDialog } from "./create-list-dialog";
+import { TaskDetailModal } from "@/components/tasks/task-detail-modal";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import { reorderTasksInList } from "@/lib/actions/tasks";
+import { reorderTasksInList, type TaskWithRelations } from "@/lib/actions/tasks";
 import type { List } from "@/lib/actions/lists";
-import type { Task } from "@/lib/actions/tasks";
 
 interface KanbanBoardProps {
   boardId: string;
+  workspaceId: string;
   lists: List[];
-  tasks: Task[];
+  tasks: TaskWithRelations[];
 }
 
-export function KanbanBoard({ boardId, lists, tasks }: KanbanBoardProps) {
+export function KanbanBoard({ boardId, workspaceId, lists, tasks }: KanbanBoardProps) {
   const [localLists] = useState(lists);
   const [localTasks, setLocalTasks] = useState(tasks);
   const [isDragging, setIsDragging] = useState(false);
   const [createTaskListId, setCreateTaskListId] = useState<string | null>(null);
   const [showCreateList, setShowCreateList] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   // Group tasks by list
   const tasksByList = localTasks.reduce(
@@ -37,7 +39,7 @@ export function KanbanBoard({ boardId, lists, tasks }: KanbanBoardProps) {
       acc[task.list_id].push(task);
       return acc;
     },
-    {} as Record<string, Task[]>
+    {} as Record<string, TaskWithRelations[]>
   );
 
   // Sort tasks by position within each list
@@ -140,9 +142,18 @@ export function KanbanBoard({ boardId, lists, tasks }: KanbanBoardProps) {
     setCreateTaskListId(listId);
   };
 
-  const handleTaskCreated = (task: Task) => {
+  const handleTaskClick = (taskId: string) => {
+    setSelectedTaskId(taskId);
+  };
+
+  const handleTaskCreated = (task: TaskWithRelations) => {
     setLocalTasks((prev) => [...prev, task]);
     setCreateTaskListId(null);
+  };
+
+  const handleTaskUpdated = () => {
+    // Refresh the page to get updated data
+    window.location.reload();
   };
 
   const handleListCreated = (list: List) => {
@@ -160,6 +171,7 @@ export function KanbanBoard({ boardId, lists, tasks }: KanbanBoardProps) {
               list={list}
               tasks={tasksByList[list.id] || []}
               onAddTask={handleAddTask}
+              onTaskClick={handleTaskClick}
             />
           ))}
 
@@ -189,6 +201,15 @@ export function KanbanBoard({ boardId, lists, tasks }: KanbanBoardProps) {
         onOpenChange={setShowCreateList}
         boardId={boardId}
         onListCreated={handleListCreated}
+      />
+
+      <TaskDetailModal
+        taskId={selectedTaskId}
+        boardId={boardId}
+        workspaceId={workspaceId}
+        open={!!selectedTaskId}
+        onOpenChange={(open) => !open && setSelectedTaskId(null)}
+        onTaskUpdated={handleTaskUpdated}
       />
     </>
   );

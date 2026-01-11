@@ -8,13 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Plus, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { List } from "@/lib/actions/lists";
-import type { Task } from "@/lib/actions/tasks";
+import type { TaskWithRelations } from "@/lib/actions/tasks";
 
 interface KanbanColumnProps {
   list: List;
-  tasks: Task[];
+  tasks: TaskWithRelations[];
   onAddTask: (listId: string) => void;
-  onTaskClick?: (task: Task) => void;
+  onTaskClick?: (taskId: string) => void;
 }
 
 // Priority order for sorting
@@ -154,7 +154,7 @@ export function KanbanColumn({
                 key={task.id}
                 task={task}
                 index={index}
-                onClick={() => onTaskClick?.(task)}
+                onClick={() => onTaskClick?.(task.id)}
               />
             ))}
             {provided.placeholder}

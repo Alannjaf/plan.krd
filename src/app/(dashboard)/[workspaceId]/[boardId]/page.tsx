@@ -1,7 +1,7 @@
 import { getWorkspace } from "@/lib/actions/workspaces";
 import { getBoard } from "@/lib/actions/boards";
 import { getLists } from "@/lib/actions/lists";
-import { getTasksByBoard } from "@/lib/actions/tasks";
+import { getTasksWithRelations } from "@/lib/actions/tasks";
 import { notFound } from "next/navigation";
 import { KanbanBoard } from "@/components/kanban/kanban-board";
 import { BoardHeaderActions } from "@/components/boards/board-header-actions";
@@ -19,7 +19,7 @@ export default async function BoardPage({ params }: BoardPageProps) {
     getWorkspace(workspaceId),
     getBoard(boardId),
     getLists(boardId),
-    getTasksByBoard(boardId),
+    getTasksWithRelations(boardId),
   ]);
 
   if (!workspace || !board) {
@@ -50,7 +50,12 @@ export default async function BoardPage({ params }: BoardPageProps) {
 
       {/* Kanban Board */}
       <div className="flex-1 overflow-hidden bg-secondary/10 p-4">
-        <KanbanBoard boardId={boardId} lists={lists} tasks={tasks} />
+        <KanbanBoard
+          boardId={boardId}
+          workspaceId={workspaceId}
+          lists={lists}
+          tasks={tasks}
+        />
       </div>
     </div>
   );
