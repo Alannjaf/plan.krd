@@ -33,7 +33,9 @@ export type ActivityAction =
   | "comment_added"
   | "due_date_changed"
   | "priority_changed"
-  | "description_changed";
+  | "description_changed"
+  | "completed"
+  | "uncompleted";
 
 export async function getTaskActivities(
   taskId: string

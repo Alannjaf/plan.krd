@@ -57,7 +57,7 @@ export function WorkloadView({ tasks, workspaceId, boardId }: WorkloadViewProps)
 
   const getTasksForUser = (userId: string) => {
     return tasks.filter((task) =>
-      task.assignees?.some((a) => a.user_id === userId)
+      !task.completed && task.assignees?.some((a) => a.user_id === userId)
     );
   };
 
@@ -76,8 +76,8 @@ export function WorkloadView({ tasks, workspaceId, boardId }: WorkloadViewProps)
     return { label: "Light", color: "text-green-400", bgColor: "bg-green-500" };
   };
 
-  // Get unassigned tasks
-  const unassignedTasks = tasks.filter((task) => !task.assignees || task.assignees.length === 0);
+  // Get unassigned tasks (excluding completed)
+  const unassignedTasks = tasks.filter((task) => !task.completed && (!task.assignees || task.assignees.length === 0));
 
   if (isLoading) {
     return (
@@ -100,7 +100,7 @@ export function WorkloadView({ tasks, workspaceId, boardId }: WorkloadViewProps)
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{tasks.length}</div>
+                <div className="text-2xl font-bold">{tasks.filter((t) => !t.completed).length}</div>
               </CardContent>
             </Card>
             <Card>
@@ -123,7 +123,7 @@ export function WorkloadView({ tasks, workspaceId, boardId }: WorkloadViewProps)
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-red-400">
-                  {tasks.filter((t) => t.due_date && isPast(new Date(t.due_date)) && !isToday(new Date(t.due_date))).length}
+                  {tasks.filter((t) => !t.completed && t.due_date && isPast(new Date(t.due_date)) && !isToday(new Date(t.due_date))).length}
                 </div>
               </CardContent>
             </Card>
@@ -147,7 +147,7 @@ export function WorkloadView({ tasks, workspaceId, boardId }: WorkloadViewProps)
                 const userTasks = getTasksForUser(member.user_id);
                 const workloadStatus = getWorkloadStatus(userTasks.length);
                 const overdueTasks = userTasks.filter(
-                  (t) => t.due_date && isPast(new Date(t.due_date)) && !isToday(new Date(t.due_date))
+                  (t) => !t.completed && t.due_date && isPast(new Date(t.due_date)) && !isToday(new Date(t.due_date))
                 );
 
                 return (

@@ -111,25 +111,47 @@ export async function createComment(
       const board = (task.lists as { boards: { id: string; workspace_id: string } })?.boards;
 
       // Look up mentioned users by email or full_name
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("id, email, full_name")
-        .or(mentions.map((m) => `email.ilike.${m},full_name.ilike.${m}`).join(","));
+      // Query each mention separately and combine results to avoid query syntax issues
+      const allProfiles = new Map<string, { id: string; email: string | null; full_name: string | null }>();
+      
+      for (const mention of mentions) {
+        // Escape special characters for ilike (%, _)
+        const escapedMention = mention.replace(/%/g, "\\%").replace(/_/g, "\\_");
+        
+        // Query for exact or partial match on email or full_name
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, email, full_name")
+          .or(`email.ilike.%${escapedMention}%,full_name.ilike.%${escapedMention}%`);
 
-      if (profiles) {
-        for (const profile of profiles) {
-          if (profile.id !== user.id) {
-            await createNotification({
-              userId: profile.id,
-              type: "mention",
-              title: "You were mentioned in a comment",
-              message: content.slice(0, 100) + (content.length > 100 ? "..." : ""),
-              taskId,
-              workspaceId: board?.workspace_id,
-              boardId: board?.id,
-              actorId: user.id,
-            });
-          }
+        if (profiles) {
+          profiles.forEach((profile) => {
+            // Check if the mention matches exactly (case-insensitive)
+            const emailMatch = profile.email?.toLowerCase() === mention.toLowerCase() ||
+              profile.email?.toLowerCase().includes(mention.toLowerCase());
+            const nameMatch = profile.full_name?.toLowerCase() === mention.toLowerCase() ||
+              profile.full_name?.toLowerCase().includes(mention.toLowerCase());
+            
+            if (emailMatch || nameMatch) {
+              allProfiles.set(profile.id, profile);
+            }
+          });
+        }
+      }
+
+      // Create notifications for all matched profiles
+      for (const profile of allProfiles.values()) {
+        if (profile.id !== user.id) {
+          await createNotification({
+            userId: profile.id,
+            type: "mention",
+            title: "You were mentioned in a comment",
+            message: content.slice(0, 100) + (content.length > 100 ? "..." : ""),
+            taskId,
+            workspaceId: board?.workspace_id,
+            boardId: board?.id,
+            actorId: user.id,
+          });
         }
       }
     }

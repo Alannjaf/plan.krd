@@ -15,6 +15,8 @@ export type Task = {
   due_date: string | null;
   archived: boolean;
   archived_at: string | null;
+  completed: boolean;
+  completed_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -562,6 +564,56 @@ export async function unarchiveTask(
   }
 
   await logActivity(taskId, "updated", { archived: false });
+
+  return { success: true };
+}
+
+export async function completeTask(
+  taskId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      completed: true,
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId);
+
+  if (error) {
+    console.error("Error completing task:", error);
+    return { success: false, error: error.message };
+  }
+
+  await logActivity(taskId, "completed", {});
+  revalidatePath(`/dashboard`);
+
+  return { success: true };
+}
+
+export async function uncompleteTask(
+  taskId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      completed: false,
+      completed_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId);
+
+  if (error) {
+    console.error("Error uncompleting task:", error);
+    return { success: false, error: error.message };
+  }
+
+  await logActivity(taskId, "uncompleted", {});
+  revalidatePath(`/dashboard`);
 
   return { success: true };
 }

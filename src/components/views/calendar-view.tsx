@@ -59,7 +59,7 @@ export function CalendarView({ tasks, workspaceId, boardId }: CalendarViewProps)
 
   const getTasksForDay = (day: Date) => {
     return tasks.filter((task) => {
-      if (!task.due_date) return false;
+      if (!task.due_date || task.completed) return false;
       return isSameDay(new Date(task.due_date), day);
     });
   };

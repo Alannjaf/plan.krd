@@ -158,22 +158,25 @@ export function ListView({ tasks, lists, workspaceId, boardId }: ListViewProps) 
               </TableRow>
             ) : (
               sortedTasks.map((task) => {
-                const isOverdue = task.due_date && isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date));
-                const isDueToday = task.due_date && isToday(new Date(task.due_date));
+                const isOverdue = !task.completed && task.due_date && isPast(new Date(task.due_date)) && !isToday(new Date(task.due_date));
+                const isDueToday = !task.completed && task.due_date && isToday(new Date(task.due_date));
 
                 return (
                   <TableRow
                     key={task.id}
                     className={cn(
                       "cursor-pointer hover:bg-muted/50 transition-colors",
-                      task.archived && "opacity-60"
+                      task.archived && "opacity-60",
+                      task.completed && "opacity-70"
                     )}
                     onClick={() => setSelectedTaskId(task.id)}
                   >
                     <TableCell>
                       <div className="flex items-center gap-2">
                         {task.archived && <Archive className="h-4 w-4 text-muted-foreground" />}
-                        <span className="font-medium">{task.title}</span>
+                        <span className={cn("font-medium", task.completed && "line-through opacity-60")}>
+                          {task.title}
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -195,7 +198,7 @@ export function ListView({ tasks, lists, workspaceId, boardId }: ListViewProps) 
                       )}
                     </TableCell>
                     <TableCell>
-                      {task.due_date && (
+                      {task.due_date && !task.completed && (
                         <span
                           className={cn(
                             "inline-flex items-center gap-1 text-sm",

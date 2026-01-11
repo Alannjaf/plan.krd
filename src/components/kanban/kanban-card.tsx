@@ -9,14 +9,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Calendar, Flag, CheckSquare, MessageSquare, Paperclip, Archive } from "lucide-react";
+import { Calendar, Flag, CheckSquare, MessageSquare, Paperclip, Archive, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
+import { Checkbox } from "@/components/ui/checkbox";
+import { completeTask, uncompleteTask } from "@/lib/actions/tasks";
+import { useState } from "react";
 
 interface KanbanCardProps {
   task: TaskWithRelations;
   index: number;
-  onClick?: () => void;
+  onClick?: (taskId: string) => void;
 }
 
 const priorityColors = {
@@ -27,12 +30,24 @@ const priorityColors = {
 };
 
 export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
+  const [isCompleting, setIsCompleting] = useState(false);
   const isOverdue =
-    task.due_date && new Date(task.due_date) < new Date() ? true : false;
+    task.due_date && new Date(task.due_date) < new Date() && !task.completed ? true : false;
 
   const completedSubtasks = task.subtasks?.filter((s) => s.completed).length || 0;
   const totalSubtasks = task.subtasks?.length || 0;
   const hasSubtasks = totalSubtasks > 0;
+
+  const handleCompletionToggle = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsCompleting(true);
+    if (task.completed) {
+      await uncompleteTask(task.id);
+    } else {
+      await completeTask(task.id);
+    }
+    setIsCompleting(false);
+  };
 
   const getInitials = (name: string | null, email: string | null) => {
     if (name) {
@@ -53,22 +68,37 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
-          onClick={onClick}
+          onClick={() => onClick?.(task.id)}
           className={cn(
             "p-3 mb-2 cursor-pointer transition-all duration-200",
             "bg-card hover:bg-accent/50 border-border/50",
             "hover:border-primary/30 hover:shadow-md",
             snapshot.isDragging && "shadow-xl border-primary/50 rotate-2",
-            task.archived && "opacity-60 border-dashed bg-muted/30"
+            task.archived && "opacity-60 border-dashed bg-muted/30",
+            task.completed && "opacity-70"
           )}
         >
-          {/* Archived Badge */}
-          {task.archived && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2 bg-muted/50 rounded px-2 py-1 w-fit">
-              <Archive className="w-3 h-3" />
-              Archived
+          {/* Completion Checkbox and Archived Badge */}
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={task.completed}
+                onCheckedChange={handleCompletionToggle}
+                disabled={isCompleting}
+                onClick={(e) => e.stopPropagation()}
+                className="h-4 w-4"
+              />
+              {task.completed && (
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+              )}
             </div>
-          )}
+            {task.archived && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground bg-muted/50 rounded px-2 py-1">
+                <Archive className="w-3 h-3" />
+                Archived
+              </div>
+            )}
+          </div>
 
           {/* Labels */}
           {task.labels && task.labels.length > 0 && (
@@ -89,7 +119,10 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
             </div>
           )}
 
-          <h4 className="text-sm font-medium leading-tight mb-2">
+          <h4 className={cn(
+            "text-sm font-medium leading-tight mb-2",
+            task.completed && "line-through opacity-60"
+          )}>
             {task.title}
           </h4>
 
@@ -107,7 +140,7 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
                 </span>
               )}
 
-              {task.due_date && (
+              {task.due_date && !task.completed && (
                 <span
                   className={cn(
                     "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs",
