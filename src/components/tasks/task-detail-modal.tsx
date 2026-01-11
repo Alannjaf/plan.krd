@@ -20,6 +20,7 @@ import { SubtaskList } from "./subtask-list";
 import { AttachmentList } from "./attachment-list";
 import { ActivityLog } from "./activity-log";
 import { CommentSection } from "./comment-section";
+import { CustomFields } from "./custom-fields";
 import { getTask, type TaskWithRelations } from "@/lib/actions/tasks";
 import { Loader2, MessageSquare, History, Paperclip } from "lucide-react";
 
@@ -113,6 +114,7 @@ export function TaskDetailModal({
                       {/* Subtasks */}
                       <SubtaskList
                         task={task}
+                        workspaceId={workspaceId}
                         setTask={setTask}
                         onChanged={markChanged}
                       />
@@ -194,6 +196,14 @@ export function TaskDetailModal({
                       {/* Priority */}
                       <TaskPriority
                         task={task}
+                        setTask={setTask}
+                        onChanged={markChanged}
+                      />
+
+                      {/* Custom Fields */}
+                      <CustomFields
+                        taskId={task.id}
+                        boardId={boardId}
                         setTask={setTask}
                         onChanged={markChanged}
                       />

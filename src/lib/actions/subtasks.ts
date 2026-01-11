@@ -11,7 +11,13 @@ export type Subtask = {
   due_date: string | null;
   assignee_id: string | null;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
+  assignee?: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
 };
 
 export async function getSubtasks(taskId: string): Promise<Subtask[]> {
@@ -19,7 +25,10 @@ export async function getSubtasks(taskId: string): Promise<Subtask[]> {
 
   const { data, error } = await supabase
     .from("subtasks")
-    .select("*")
+    .select(`
+      *,
+      assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url)
+    `)
     .eq("parent_task_id", taskId)
     .order("position", { ascending: true });
 

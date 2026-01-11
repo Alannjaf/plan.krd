@@ -43,6 +43,14 @@ export type TaskWithRelations = Task & {
     title: string;
     completed: boolean;
     position: number;
+    due_date: string | null;
+    assignee_id: string | null;
+    assignee?: {
+      id: string;
+      email: string | null;
+      full_name: string | null;
+      avatar_url: string | null;
+    } | null;
   }>;
   attachments_count: number;
   comments_count: number;
@@ -65,7 +73,7 @@ export async function getTask(taskId: string): Promise<TaskWithRelations | null>
         label_id,
         labels(id, name, color)
       ),
-      subtasks(id, title, completed, position)
+      subtasks(id, title, completed, position, due_date, assignee_id, assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url))
     `)
     .eq("id", taskId)
     .single();
@@ -161,7 +169,7 @@ export async function getTasksWithRelations(boardId: string): Promise<TaskWithRe
       .in("task_id", taskIds),
     supabase
       .from("subtasks")
-      .select("id, parent_task_id, title, completed, position")
+      .select("id, parent_task_id, title, completed, position, due_date, assignee_id, assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url)")
       .in("parent_task_id", taskIds)
       .order("position", { ascending: true }),
   ]);
@@ -216,6 +224,14 @@ export async function getTasksWithRelations(boardId: string): Promise<TaskWithRe
       title: s.title,
       completed: s.completed,
       position: s.position,
+      due_date: s.due_date,
+      assignee_id: s.assignee_id,
+      assignee: s.assignee as {
+        id: string;
+        email: string | null;
+        full_name: string | null;
+        avatar_url: string | null;
+      } | null,
     })),
     attachments_count: 0,
     comments_count: 0,
