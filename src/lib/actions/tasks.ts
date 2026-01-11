@@ -131,33 +131,92 @@ export async function getTasksByBoard(boardId: string): Promise<Task[]> {
 export async function getTasksWithRelations(boardId: string): Promise<TaskWithRelations[]> {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  // First, get all tasks for the board
+  const { data: tasks, error: tasksError } = await supabase
     .from("tasks")
-    .select(`
-      *,
-      lists!inner(board_id),
-      assignees:task_assignees(
-        id,
-        user_id,
-        profiles(id, email, full_name, avatar_url)
-      ),
-      labels:task_labels(
-        id,
-        label_id,
-        labels(id, name, color)
-      ),
-      subtasks(id, title, completed, position)
-    `)
+    .select("*, lists!inner(board_id)")
     .eq("lists.board_id", boardId)
     .order("position", { ascending: true });
 
-  if (error) {
-    console.error("Error fetching tasks with relations:", error);
+  if (tasksError) {
+    console.error("Error fetching tasks:", tasksError);
     return [];
   }
 
-  return (data || []).map((task) => ({
+  if (!tasks || tasks.length === 0) {
+    return [];
+  }
+
+  const taskIds = tasks.map((t) => t.id);
+
+  // Fetch relations in parallel
+  const [assigneesResult, labelsResult, subtasksResult] = await Promise.all([
+    supabase
+      .from("task_assignees")
+      .select("id, task_id, user_id, profiles(id, email, full_name, avatar_url)")
+      .in("task_id", taskIds),
+    supabase
+      .from("task_labels")
+      .select("id, task_id, label_id, labels(id, name, color)")
+      .in("task_id", taskIds),
+    supabase
+      .from("subtasks")
+      .select("id, parent_task_id, title, completed, position")
+      .in("parent_task_id", taskIds)
+      .order("position", { ascending: true }),
+  ]);
+
+  // Group relations by task_id
+  const assigneesByTask = new Map<string, typeof assigneesResult.data>();
+  const labelsByTask = new Map<string, typeof labelsResult.data>();
+  const subtasksByTask = new Map<string, typeof subtasksResult.data>();
+
+  assigneesResult.data?.forEach((a) => {
+    const existing = assigneesByTask.get(a.task_id) || [];
+    existing.push(a);
+    assigneesByTask.set(a.task_id, existing);
+  });
+
+  labelsResult.data?.forEach((l) => {
+    const existing = labelsByTask.get(l.task_id) || [];
+    existing.push(l);
+    labelsByTask.set(l.task_id, existing);
+  });
+
+  subtasksResult.data?.forEach((s) => {
+    const existing = subtasksByTask.get(s.parent_task_id) || [];
+    existing.push(s);
+    subtasksByTask.set(s.parent_task_id, existing);
+  });
+
+  // Combine tasks with their relations
+  return tasks.map((task) => ({
     ...task,
+    assignees: (assigneesByTask.get(task.id) || []).map((a) => ({
+      id: a.id,
+      user_id: a.user_id,
+      profiles: a.profiles as {
+        id: string;
+        email: string | null;
+        full_name: string | null;
+        avatar_url: string | null;
+      },
+    })),
+    labels: (labelsByTask.get(task.id) || []).map((l) => ({
+      id: l.id,
+      label_id: l.label_id,
+      labels: l.labels as {
+        id: string;
+        name: string;
+        color: string;
+      },
+    })),
+    subtasks: (subtasksByTask.get(task.id) || []).map((s) => ({
+      id: s.id,
+      title: s.title,
+      completed: s.completed,
+      position: s.position,
+    })),
     attachments_count: 0,
     comments_count: 0,
   })) as TaskWithRelations[];
