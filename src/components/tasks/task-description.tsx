@@ -30,6 +30,7 @@ export function TaskDescription({
       }),
     ],
     content: description || "",
+    immediatelyRender: false, // Prevent SSR hydration mismatch
     editorProps: {
       attributes: {
         class:
