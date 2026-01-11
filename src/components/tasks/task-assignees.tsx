@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { addAssignee, removeAssignee, getWorkspaceMembers } from "@/lib/actions/assignees";
+import { addAssignee, removeAssignee } from "@/lib/actions/assignees";
+import { useWorkspaceMembers } from "@/lib/query/queries/members";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query/queries/tasks";
@@ -33,6 +34,7 @@ interface TaskAssigneesProps {
   workspaceId: string;
   boardId: string;
   onChanged: () => void;
+  readOnly?: boolean;
 }
 
 export function TaskAssignees({
@@ -40,22 +42,14 @@ export function TaskAssignees({
   workspaceId,
   boardId,
   onChanged,
+  readOnly = false,
 }: TaskAssigneesProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [search, setSearch] = useState("");
   const queryClient = useQueryClient();
-
-  useEffect(() => {
-    if (isOpen) {
-      loadMembers();
-    }
-  }, [isOpen]);
-
-  const loadMembers = async () => {
-    const data = await getWorkspaceMembers(workspaceId);
-    setMembers(data as unknown as WorkspaceMember[]);
-  };
+  
+  const { data: membersData = [] } = useWorkspaceMembers(workspaceId);
+  const members = membersData as unknown as WorkspaceMember[];
 
   const assignees = task.assignees || [];
   const assignedUserIds = assignees.map((a) => a.user_id);
@@ -69,23 +63,40 @@ export function TaskAssignees({
   });
 
   const handleToggleAssignee = async (member: WorkspaceMember) => {
+    if (readOnly || !member.profiles) return;
     const isAssigned = assignedUserIds.includes(member.user_id);
     onChanged();
 
-    if (isAssigned) {
-      const result = await removeAssignee(task.id, member.user_id);
-      if (result.success) {
-        // Invalidate queries to refetch updated task data
-        queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
-      }
-    } else {
-      const result = await addAssignee(task.id, member.user_id);
-      if (result.success) {
-        // Invalidate queries to refetch updated task data
-        queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
-      }
+    // Create optimistic assignee data
+    const newAssignee = {
+      id: `temp-${Date.now()}`,
+      task_id: task.id,
+      user_id: member.user_id,
+      created_at: new Date().toISOString(),
+      profiles: member.profiles,
+    };
+
+    const optimisticAssignees = isAssigned
+      ? assignees.filter((a) => a.user_id !== member.user_id)
+      : [...assignees, newAssignee];
+
+    // Optimistically update caches BEFORE server call
+    queryClient.setQueryData<TaskWithRelations>(queryKeys.task(task.id), (old) =>
+      old ? { ...old, assignees: optimisticAssignees } : old
+    );
+    queryClient.setQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard(boardId), (old) =>
+      old?.map((t) => (t.id === task.id ? { ...t, assignees: optimisticAssignees } : t))
+    );
+
+    // Execute server action
+    const result = isAssigned
+      ? await removeAssignee(task.id, member.user_id)
+      : await addAssignee(task.id, member.user_id);
+
+    if (!result.success) {
+      // Rollback on error by invalidating
+      queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+      queryClient.invalidateQueries({ queryKey: ["tasks", "board"] });
     }
   };
 
@@ -123,71 +134,75 @@ export function TaskAssignees({
             <span className="text-sm">
               {assignee.profiles?.full_name || assignee.profiles?.email}
             </span>
-            <button
-              className="hover:text-destructive transition-colors"
-              onClick={() =>
-                handleToggleAssignee({
-                  user_id: assignee.user_id,
-                  role: "",
-                  profiles: assignee.profiles!,
-                })
-              }
-            >
-              <X className="h-3 w-3" />
-            </button>
+            {!readOnly && (
+              <button
+                className="hover:text-destructive transition-colors"
+                onClick={() =>
+                  handleToggleAssignee({
+                    user_id: assignee.user_id,
+                    role: "",
+                    profiles: assignee.profiles!,
+                  })
+                }
+              >
+                <X className="h-3 w-3" />
+              </button>
+            )}
           </div>
         ))}
 
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="h-8 gap-1">
-              <Plus className="h-4 w-4" />
-              Add
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-64 p-2" align="start">
-            <Input
-              placeholder="Search members..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="mb-2"
-            />
-            <ScrollArea className="h-48">
-              {filteredMembers.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No members found
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {filteredMembers.map((member) => {
-                    const isAssigned = assignedUserIds.includes(member.user_id);
-                    return (
-                      <button
-                        key={member.user_id}
-                        className={cn(
-                          "w-full flex items-center gap-2 p-2 rounded-md hover:bg-secondary/50 transition-colors",
-                          isAssigned && "bg-secondary"
-                        )}
-                        onClick={() => handleToggleAssignee(member)}
-                      >
-                        <Avatar className="h-6 w-6">
-                          <AvatarImage src={member.profiles?.avatar_url || undefined} />
-                          <AvatarFallback className="text-xs">
-                            {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="flex-1 text-left text-sm truncate">
-                          {member.profiles?.full_name || member.profiles?.email || "Unknown"}
-                        </span>
-                        {isAssigned && <Check className="h-4 w-4 text-primary" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </ScrollArea>
-          </PopoverContent>
-        </Popover>
+        {!readOnly && (
+          <Popover open={isOpen} onOpenChange={setIsOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 gap-1">
+                <Plus className="h-4 w-4" />
+                Add
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-2" align="start">
+              <Input
+                placeholder="Search members..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="mb-2"
+              />
+              <ScrollArea className="h-48">
+                {filteredMembers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No members found
+                  </p>
+                ) : (
+                  <div className="space-y-1">
+                    {filteredMembers.map((member) => {
+                      const isAssigned = assignedUserIds.includes(member.user_id);
+                      return (
+                        <button
+                          key={member.user_id}
+                          className={cn(
+                            "w-full flex items-center gap-2 p-2 rounded-md hover:bg-secondary/50 transition-colors",
+                            isAssigned && "bg-secondary"
+                          )}
+                          onClick={() => handleToggleAssignee(member)}
+                        >
+                          <Avatar className="h-6 w-6">
+                            <AvatarImage src={member.profiles?.avatar_url || undefined} />
+                            <AvatarFallback className="text-xs">
+                              {getInitials(member.profiles?.full_name || null, member.profiles?.email || null)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="flex-1 text-left text-sm truncate">
+                            {member.profiles?.full_name || member.profiles?.email || "Unknown"}
+                          </span>
+                          {isAssigned && <Check className="h-4 w-4 text-primary" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </ScrollArea>
+            </PopoverContent>
+          </Popover>
+        )}
       </div>
     </div>
   );

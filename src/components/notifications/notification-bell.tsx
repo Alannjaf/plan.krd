@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -11,69 +11,33 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Bell, Loader2 } from "lucide-react";
 import { NotificationItem } from "./notification-item";
 import {
-  getNotifications,
-  getUnreadCount,
   markAllAsRead,
   type Notification,
 } from "@/lib/actions/notifications";
-import { cn } from "@/lib/utils";
+import { useNotifications, useUnreadCount, queryKeys } from "@/lib/query/queries/notifications";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function NotificationBell() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-
-  useEffect(() => {
-    loadUnreadCount();
-    // Poll for new notifications every 30 seconds
-    const interval = setInterval(loadUnreadCount, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    if (isOpen) {
-      loadNotifications();
-    }
-  }, [isOpen]);
-
-  const loadUnreadCount = async () => {
-    const count = await getUnreadCount();
-    setUnreadCount(count);
-  };
-
-  const loadNotifications = async () => {
-    setIsLoading(true);
-    const data = await getNotifications();
-    setNotifications(data);
-    setIsLoading(false);
-  };
+  const queryClient = useQueryClient();
+  
+  const { data: notifications = [], isLoading } = useNotifications();
+  const { data: unreadCount = 0 } = useUnreadCount();
 
   const handleMarkAllRead = async () => {
     await markAllAsRead();
-    setNotifications((prev) =>
-      prev.map((n) => ({ ...n, read: true, read_at: new Date().toISOString() }))
-    );
-    setUnreadCount(0);
+    queryClient.invalidateQueries({ queryKey: queryKeys.notifications() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount() });
   };
 
-  const handleNotificationRead = (notificationId: string) => {
-    setNotifications((prev) =>
-      prev.map((n) =>
-        n.id === notificationId
-          ? { ...n, read: true, read_at: new Date().toISOString() }
-          : n
-      )
-    );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
+  const handleNotificationRead = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.notifications() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount() });
   };
 
-  const handleNotificationDelete = (notificationId: string) => {
-    const notification = notifications.find((n) => n.id === notificationId);
-    setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
-    if (notification && !notification.read) {
-      setUnreadCount((prev) => Math.max(0, prev - 1));
-    }
+  const handleNotificationDelete = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.notifications() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.unreadCount() });
   };
 
   return (

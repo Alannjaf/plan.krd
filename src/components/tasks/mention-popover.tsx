@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import {
   Popover,
   PopoverContent,
@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/popover";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { getWorkspaceMembers } from "@/lib/actions/assignees";
+import { useWorkspaceMembers } from "@/lib/query/queries/members";
 import { cn } from "@/lib/utils";
 
 type Member = {
@@ -37,20 +37,11 @@ export function MentionPopover({
   open,
   onOpenChange,
 }: MentionPopoverProps) {
-  const [members, setMembers] = useState<Member[]>([]);
   const [search, setSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-
-  useEffect(() => {
-    if (open) {
-      loadMembers();
-    }
-  }, [workspaceId, open]);
-
-  const loadMembers = async () => {
-    const data = await getWorkspaceMembers(workspaceId);
-    setMembers(data as unknown as Member[]);
-  };
+  
+  const { data: membersData = [] } = useWorkspaceMembers(workspaceId);
+  const members = membersData as unknown as Member[];
 
   const filteredMembers = members.filter((member) => {
     if (!search) return true;

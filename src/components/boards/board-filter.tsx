@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -18,8 +18,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import { Filter, X, Calendar as CalendarIcon } from "lucide-react";
-import { getLabels, type Label } from "@/lib/actions/labels";
-import { getWorkspaceMembers } from "@/lib/actions/assignees";
+import { useLabels } from "@/lib/query/queries/labels";
+import { useWorkspaceMembers } from "@/lib/query/queries/members";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
@@ -56,22 +56,11 @@ export function BoardFilter({
   filters,
   onFiltersChange,
 }: BoardFilterProps) {
-  const [labels, setLabels] = useState<Label[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
   const [isOpen, setIsOpen] = useState(false);
-
-  useEffect(() => {
-    loadFilterOptions();
-  }, [boardId, workspaceId]);
-
-  const loadFilterOptions = async () => {
-    const [labelsData, membersData] = await Promise.all([
-      getLabels(boardId),
-      getWorkspaceMembers(workspaceId),
-    ]);
-    setLabels(labelsData);
-    setMembers(membersData as unknown as Member[]);
-  };
+  
+  const { data: labels = [] } = useLabels(boardId);
+  const { data: membersData = [] } = useWorkspaceMembers(workspaceId);
+  const members = membersData as unknown as Member[];
 
   const hasActiveFilters = 
     filters.assigneeId || 

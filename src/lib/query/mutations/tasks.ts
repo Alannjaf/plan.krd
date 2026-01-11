@@ -16,6 +16,9 @@ import {
 } from "@/lib/actions/tasks";
 import { queryKeys } from "../queries/tasks";
 
+// Partial key for matching all board task caches
+const TASKS_BOARD_PARTIAL_KEY = ["tasks", "board"] as const;
+
 export function useCreateTask() {
   const queryClient = useQueryClient();
 
@@ -41,13 +44,15 @@ export function useCreateTask() {
       return result.task!;
     },
     onMutate: async ({ listId, title, options }) => {
-      // Cancel outgoing refetches
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasksByBoard() });
+      // Cancel outgoing refetches for all board queries
+      await queryClient.cancelQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
 
-      // Snapshot previous value
-      const previousTasks = queryClient.getQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard());
+      // Snapshot all board caches
+      const previousBoardQueries = queryClient.getQueriesData<TaskWithRelations[]>({
+        queryKey: TASKS_BOARD_PARTIAL_KEY,
+      });
 
-      // Optimistically update
+      // Optimistically update all board caches
       const optimisticTask: TaskWithRelations = {
         id: `temp-${Date.now()}`,
         list_id: listId,
@@ -72,25 +77,23 @@ export function useCreateTask() {
         comments_count: 0,
       };
 
-      queryClient.setQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard(), (old) => {
-        if (!old) return [optimisticTask];
-        return [...old, optimisticTask];
+      previousBoardQueries.forEach(([key, data]) => {
+        if (data) {
+          queryClient.setQueryData<TaskWithRelations[]>(key, [...data, optimisticTask]);
+        }
       });
 
-      return { previousTasks };
+      return { previousBoardQueries };
     },
     onError: (err, variables, context) => {
-      // Restore previous value on error
-      if (context?.previousTasks) {
-        queryClient.setQueryData(queryKeys.tasksByBoard(), context.previousTasks);
-      }
-    },
-    onSuccess: (data, variables) => {
-      // Invalidate and refetch
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+      // Restore all previous values on error
+      context?.previousBoardQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+      // Invalidate all board queries
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
   });
 }
@@ -119,18 +122,25 @@ export function useUpdateTask() {
       return result;
     },
     onMutate: async ({ taskId, updates }) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasksByBoard() });
+      await queryClient.cancelQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
       await queryClient.cancelQueries({ queryKey: queryKeys.task(taskId) });
 
-      const previousTasks = queryClient.getQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard());
+      // Snapshot all board caches
+      const previousBoardQueries = queryClient.getQueriesData<TaskWithRelations[]>({
+        queryKey: TASKS_BOARD_PARTIAL_KEY,
+      });
       const previousTask = queryClient.getQueryData<TaskWithRelations>(queryKeys.task(taskId));
 
-      // Optimistically update
-      queryClient.setQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard(), (old) => {
-        if (!old) return old;
-        return old.map((task) =>
-          task.id === taskId ? { ...task, ...updates, updated_at: new Date().toISOString() } : task
-        );
+      // Optimistically update all board caches
+      previousBoardQueries.forEach(([key, data]) => {
+        if (data) {
+          queryClient.setQueryData<TaskWithRelations[]>(
+            key,
+            data.map((task) =>
+              task.id === taskId ? { ...task, ...updates, updated_at: new Date().toISOString() } : task
+            )
+          );
+        }
       });
 
       queryClient.setQueryData<TaskWithRelations>(queryKeys.task(taskId), (old) => {
@@ -138,19 +148,19 @@ export function useUpdateTask() {
         return { ...old, ...updates, updated_at: new Date().toISOString() };
       });
 
-      return { previousTasks, previousTask };
+      return { previousBoardQueries, previousTask };
     },
     onError: (err, variables, context) => {
-      if (context?.previousTasks) {
-        queryClient.setQueryData(queryKeys.tasksByBoard(), context.previousTasks);
-      }
+      context?.previousBoardQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
       if (context?.previousTask) {
         queryClient.setQueryData(queryKeys.task(variables.taskId), context.previousTask);
       }
     },
-    onSuccess: (data, variables) => {
+    onSettled: (data, error, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.task(variables.taskId) });
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
   });
 }
@@ -167,25 +177,32 @@ export function useDeleteTask() {
       return result;
     },
     onMutate: async (taskId) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasksByBoard() });
+      await queryClient.cancelQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
 
-      const previousTasks = queryClient.getQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard());
-
-      // Optimistically remove
-      queryClient.setQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard(), (old) => {
-        if (!old) return old;
-        return old.filter((task) => task.id !== taskId);
+      // Snapshot all board caches
+      const previousBoardQueries = queryClient.getQueriesData<TaskWithRelations[]>({
+        queryKey: TASKS_BOARD_PARTIAL_KEY,
       });
 
-      return { previousTasks };
+      // Optimistically remove from all caches
+      previousBoardQueries.forEach(([key, data]) => {
+        if (data) {
+          queryClient.setQueryData<TaskWithRelations[]>(
+            key,
+            data.filter((task) => task.id !== taskId)
+          );
+        }
+      });
+
+      return { previousBoardQueries };
     },
     onError: (err, variables, context) => {
-      if (context?.previousTasks) {
-        queryClient.setQueryData(queryKeys.tasksByBoard(), context.previousTasks);
-      }
+      context?.previousBoardQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
   });
 }
@@ -209,8 +226,8 @@ export function useMoveTask() {
       }
       return result;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
   });
 }
@@ -225,8 +242,8 @@ export function useArchiveTask() {
       }
       return result;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
   });
 }
@@ -241,8 +258,8 @@ export function useUnarchiveTask() {
       }
       return result;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
   });
 }
@@ -258,33 +275,41 @@ export function useCompleteTask() {
       return result;
     },
     onMutate: async (taskId) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasksByBoard() });
+      await queryClient.cancelQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
 
-      const previousTasks = queryClient.getQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard());
-
-      queryClient.setQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard(), (old) => {
-        if (!old) return old;
-        return old.map((task) =>
-          task.id === taskId
-            ? {
-                ...task,
-                completed: true,
-                completed_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              }
-            : task
-        );
+      // Snapshot all board caches
+      const previousBoardQueries = queryClient.getQueriesData<TaskWithRelations[]>({
+        queryKey: TASKS_BOARD_PARTIAL_KEY,
       });
 
-      return { previousTasks };
+      // Optimistically update all caches
+      previousBoardQueries.forEach(([key, data]) => {
+        if (data) {
+          queryClient.setQueryData<TaskWithRelations[]>(
+            key,
+            data.map((task) =>
+              task.id === taskId
+                ? {
+                    ...task,
+                    completed: true,
+                    completed_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  }
+                : task
+            )
+          );
+        }
+      });
+
+      return { previousBoardQueries };
     },
     onError: (err, variables, context) => {
-      if (context?.previousTasks) {
-        queryClient.setQueryData(queryKeys.tasksByBoard(), context.previousTasks);
-      }
+      context?.previousBoardQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
   });
 }
@@ -300,33 +325,41 @@ export function useUncompleteTask() {
       return result;
     },
     onMutate: async (taskId) => {
-      await queryClient.cancelQueries({ queryKey: queryKeys.tasksByBoard() });
+      await queryClient.cancelQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
 
-      const previousTasks = queryClient.getQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard());
-
-      queryClient.setQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard(), (old) => {
-        if (!old) return old;
-        return old.map((task) =>
-          task.id === taskId
-            ? {
-                ...task,
-                completed: false,
-                completed_at: null,
-                updated_at: new Date().toISOString(),
-              }
-            : task
-        );
+      // Snapshot all board caches
+      const previousBoardQueries = queryClient.getQueriesData<TaskWithRelations[]>({
+        queryKey: TASKS_BOARD_PARTIAL_KEY,
       });
 
-      return { previousTasks };
+      // Optimistically update all caches
+      previousBoardQueries.forEach(([key, data]) => {
+        if (data) {
+          queryClient.setQueryData<TaskWithRelations[]>(
+            key,
+            data.map((task) =>
+              task.id === taskId
+                ? {
+                    ...task,
+                    completed: false,
+                    completed_at: null,
+                    updated_at: new Date().toISOString(),
+                  }
+                : task
+            )
+          );
+        }
+      });
+
+      return { previousBoardQueries };
     },
     onError: (err, variables, context) => {
-      if (context?.previousTasks) {
-        queryClient.setQueryData(queryKeys.tasksByBoard(), context.previousTasks);
-      }
+      context?.previousBoardQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
   });
 }
@@ -341,8 +374,8 @@ export function useReorderTasksInList() {
       }
       return result;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard() });
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
   });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { TaskDetailModal } from "@/components/tasks/task-detail-modal";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -9,8 +9,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
-import { getWorkspaceMembers } from "@/lib/actions/assignees";
-import { Calendar, Flag, CheckSquare, AlertTriangle } from "lucide-react";
+import { useWorkspaceMembers } from "@/lib/query/queries/members";
+import { Calendar, Flag, CheckSquare, AlertTriangle, Loader2 } from "lucide-react";
 import { format, isPast, isToday, differenceInDays } from "date-fns";
 
 interface WorkloadViewProps {
@@ -40,20 +40,10 @@ const priorityColors = {
 };
 
 export function WorkloadView({ tasks, workspaceId, boardId }: WorkloadViewProps) {
-  const [members, setMembers] = useState<Member[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    loadMembers();
-  }, [workspaceId]);
-
-  const loadMembers = async () => {
-    setIsLoading(true);
-    const data = await getWorkspaceMembers(workspaceId);
-    setMembers(data as unknown as Member[]);
-    setIsLoading(false);
-  };
+  
+  const { data: membersData = [], isLoading } = useWorkspaceMembers(workspaceId);
+  const members = membersData as unknown as Member[];
 
   const getTasksForUser = (userId: string) => {
     return tasks.filter((task) =>
@@ -82,7 +72,7 @@ export function WorkloadView({ tasks, workspaceId, boardId }: WorkloadViewProps)
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">Loading workload data...</div>
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
