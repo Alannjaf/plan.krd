@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -15,14 +15,28 @@ import {
   type Notification,
 } from "@/lib/actions/notifications";
 import { useNotifications, useUnreadCount, queryKeys } from "@/lib/query/queries/notifications";
+import { useRealtimeNotifications } from "@/lib/hooks/use-realtime-notifications";
+import { createClient } from "@/lib/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
+  const [userId, setUserId] = useState<string | undefined>();
   const queryClient = useQueryClient();
   
   const { data: notifications = [], isLoading } = useNotifications();
   const { data: unreadCount = 0 } = useUnreadCount();
+
+  // Get user ID for realtime subscription
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUserId(user?.id);
+    });
+  }, []);
+
+  // Subscribe to realtime notifications
+  useRealtimeNotifications(userId);
 
   const handleMarkAllRead = async () => {
     await markAllAsRead();

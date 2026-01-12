@@ -36,6 +36,7 @@ import { CommentSection } from "./comment-section";
 import { CustomFields } from "./custom-fields";
 import { useTask } from "@/lib/query/queries/tasks";
 import { useDeleteTask, useArchiveTask, useUnarchiveTask } from "@/lib/query/mutations/tasks";
+import { useRealtimeComments } from "@/lib/hooks/use-realtime-comments";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
 import { Loader2, MessageSquare, History, Paperclip, Trash2, Archive, ArchiveRestore } from "lucide-react";
 
@@ -65,6 +66,9 @@ export function TaskDetailModal({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("comments");
   const hasChanges = useRef(false);
+
+  // Subscribe to realtime comment updates when modal is open
+  useRealtimeComments(open && taskId ? taskId : "");
 
   useEffect(() => {
     if (!open) {

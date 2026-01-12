@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { KanbanBoard } from "@/components/kanban/kanban-board";
 import { ListView } from "@/components/views/list-view";
@@ -13,6 +13,7 @@ import { BoardFilter, filterTasks, type FilterState } from "./board-filter";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Archive, Eye, EyeOff } from "lucide-react";
 import { useTasksWithRelations } from "@/lib/query/queries/tasks";
+import { useRealtimeTasks } from "@/lib/hooks/use-realtime-tasks";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
 import type { List } from "@/lib/actions/lists";
 import type { Board } from "@/lib/actions/boards";
@@ -50,6 +51,10 @@ export function BoardContent({
     showArchived,
     initialTasks // Pass initial data to prevent refetch
   );
+
+  // Subscribe to realtime updates for tasks
+  const listIds = useMemo(() => lists.map((l) => l.id), [lists]);
+  useRealtimeTasks(board.id, listIds);
 
   // Read task ID from URL param on mount
   useEffect(() => {

@@ -90,11 +90,10 @@ export function useCreateTask() {
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
-    },
-    onSettled: () => {
-      // Invalidate all board queries
+      // Refetch on error to ensure consistency
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
+    // No onSettled invalidation - Realtime handles sync
   });
 }
 
@@ -157,11 +156,10 @@ export function useUpdateTask() {
       if (context?.previousTask) {
         queryClient.setQueryData(queryKeys.task(variables.taskId), context.previousTask);
       }
-    },
-    onSettled: (data, error, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.task(variables.taskId) });
+      // Refetch on error to ensure consistency
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
+    // No onSettled invalidation - Realtime handles sync
   });
 }
 
@@ -200,10 +198,10 @@ export function useDeleteTask() {
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
-    },
-    onSettled: () => {
+      // Refetch on error to ensure consistency
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
+    // No onSettled invalidation - Realtime handles sync
   });
 }
 
@@ -307,10 +305,10 @@ export function useCompleteTask() {
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
-    },
-    onSettled: () => {
+      // Refetch on error to ensure consistency
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
+    // No onSettled invalidation - Realtime handles sync
   });
 }
 
@@ -357,10 +355,10 @@ export function useUncompleteTask() {
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
-    },
-    onSettled: () => {
+      // Refetch on error to ensure consistency
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
+    // No onSettled invalidation - Realtime handles sync
   });
 }
 

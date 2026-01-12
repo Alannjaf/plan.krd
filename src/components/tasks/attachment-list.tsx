@@ -140,7 +140,7 @@ export function AttachmentList({ task, onChanged }: AttachmentListProps) {
       setUploadProgress(0);
       setCurrentFileName("");
     },
-    [task.id, setTask, onChanged]
+    [task.id, onChanged, queryClient]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({

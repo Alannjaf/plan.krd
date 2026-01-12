@@ -19,6 +19,6 @@ export function useUnreadCount() {
   return useQuery({
     queryKey: queryKeys.unreadCount(),
     queryFn: () => getUnreadCount(),
-    refetchInterval: 30000, // Poll every 30 seconds
+    // No polling needed - Realtime handles updates
   });
 }

@@ -114,11 +114,31 @@ export function CommentSection({
   const handleSubmit = async () => {
     if (!newComment.trim()) return;
     setIsSubmitting(true);
-    const result = await createComment(taskId, newComment.trim());
-    if (result.success) {
-      queryClient.invalidateQueries({ queryKey: commentQueryKeys.comments(taskId) });
-    }
+    
+    const commentContent = newComment.trim();
+    
+    // Optimistic update - add comment immediately
+    const optimisticComment = {
+      id: `temp-${Date.now()}`,
+      task_id: taskId,
+      content: commentContent,
+      created_at: new Date().toISOString(),
+      parent_id: null,
+      profiles: { full_name: "You", email: null, avatar_url: null },
+      replies: [],
+    };
+    
+    queryClient.setQueryData(commentQueryKeys.comments(taskId), (old: unknown) => {
+      const oldComments = old as typeof comments;
+      return oldComments ? [optimisticComment, ...oldComments] : [optimisticComment];
+    });
+    
     setNewComment("");
+    
+    const result = await createComment(taskId, commentContent);
+    // Always refresh to get the real comment with proper data
+    queryClient.invalidateQueries({ queryKey: commentQueryKeys.comments(taskId) });
+    
     setIsSubmitting(false);
   };
 
