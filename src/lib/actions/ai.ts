@@ -29,12 +29,25 @@ export type ChatMessage = {
 
 export type DecomposedSubtask = {
   title: string;
+  due_date?: string; // YYYY-MM-DD format
 };
 
 export type AutoTagSuggestion = {
   priority: "low" | "medium" | "high" | "urgent";
   labels: string[];
+  assignees?: string[]; // User IDs
+  due_date?: string; // YYYY-MM-DD format
+  custom_fields?: Record<string, string>; // field_id -> value
   reasoning: string;
+};
+
+type SimilarTaskPattern = {
+  assignee_ids: string[]; // Most common assignees
+  avg_days_to_deadline: number | null; // Average days from creation to deadline
+  common_priorities: Record<string, number>; // Priority frequency
+  common_labels: string[]; // Most common labels
+  custom_field_patterns: Record<string, { value: string; frequency: number }[]>; // Field value patterns
+  count: number; // Number of similar tasks found
 };
 
 /**
@@ -577,10 +590,10 @@ export async function decomposeTask(
 ): Promise<{ success: boolean; subtasks?: DecomposedSubtask[]; error?: string }> {
   const supabase = await createClient();
 
-  // Get the task
+  // Get the task with deadline
   const { data: task, error: taskError } = await supabase
     .from("tasks")
-    .select("title, description")
+    .select("title, description, due_date, created_at")
     .eq("id", taskId)
     .single();
 
@@ -606,13 +619,53 @@ export async function decomposeTask(
     return { success: false, error: "Failed to parse AI response" };
   }
 
-  // Validate subtasks
+  // Validate subtasks and distribute deadlines
   const validSubtasks = subtasks
     .filter((s) => s.title && typeof s.title === "string")
-    .map((s) => ({ title: s.title.trim() }));
+    .map((s) => ({ title: s.title.trim(), due_date: s.due_date }));
 
   if (validSubtasks.length === 0) {
     return { success: false, error: "No valid subtasks generated" };
+  }
+
+  // If parent has deadline, distribute subtask deadlines evenly before it
+  if (task.due_date && validSubtasks.length > 0) {
+    const parentDeadline = new Date(task.due_date);
+    const today = new Date();
+    const daysUntilDeadline = Math.ceil(
+      (parentDeadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    if (daysUntilDeadline > 0) {
+      // Distribute deadlines evenly across the time period
+      for (let i = 0; i < validSubtasks.length; i++) {
+        // If AI didn't suggest a deadline, calculate one
+        if (!validSubtasks[i].due_date) {
+          const progress = (i + 1) / validSubtasks.length;
+          const daysOffset = Math.round(daysUntilDeadline * progress);
+          const subtaskDeadline = new Date(today);
+          subtaskDeadline.setDate(subtaskDeadline.getDate() + daysOffset);
+          validSubtasks[i].due_date = subtaskDeadline.toISOString().split("T")[0];
+        } else {
+          // Validate AI-suggested deadline is before parent deadline
+          const suggestedDeadline = new Date(validSubtasks[i].due_date);
+          if (suggestedDeadline > parentDeadline) {
+            // Use parent deadline instead
+            validSubtasks[i].due_date = task.due_date;
+          }
+        }
+      }
+    }
+  } else if (validSubtasks.length > 0) {
+    // No parent deadline - suggest relative deadlines (1, 3, 5 days, etc.)
+    for (let i = 0; i < validSubtasks.length; i++) {
+      if (!validSubtasks[i].due_date) {
+        const daysOffset = (i + 1) * 2; // 2, 4, 6, 8... days
+        const subtaskDeadline = new Date();
+        subtaskDeadline.setDate(subtaskDeadline.getDate() + daysOffset);
+        validSubtasks[i].due_date = subtaskDeadline.toISOString().split("T")[0];
+      }
+    }
   }
 
   return { success: true, subtasks: validSubtasks };
@@ -676,26 +729,300 @@ export async function rewriteContent(
 }
 
 /**
+ * Find similar tasks using hybrid matching (labels + list + keywords)
+ * Returns aggregated patterns from similar tasks (0 AI tokens - pure SQL)
+ */
+async function findSimilarTasks(
+  title: string,
+  description: string | null,
+  boardId: string,
+  listId?: string,
+  currentLabelIds?: string[]
+): Promise<SimilarTaskPattern> {
+  const supabase = await createClient();
+
+  // Get all lists for this board
+  const { data: lists } = await supabase
+    .from("lists")
+    .select("id")
+    .eq("board_id", boardId);
+
+  const listIds = lists?.map((l) => l.id) || [];
+
+  if (listIds.length === 0) {
+    return {
+      assignee_ids: [],
+      avg_days_to_deadline: null,
+      common_priorities: {},
+      common_labels: [],
+      custom_field_patterns: {},
+      count: 0,
+    };
+  }
+
+  // Build query for similar tasks
+  let query = supabase
+    .from("tasks")
+    .select(
+      `
+      id,
+      title,
+      priority,
+      due_date,
+      created_at,
+      list_id,
+      assignees:task_assignees(user_id),
+      labels:task_labels(label_id, labels(name)),
+      custom_field_values(field_id, value)
+    `
+    )
+    .in("list_id", listIds)
+    .eq("archived", false)
+    .limit(50); // Get more tasks for better pattern matching
+
+  // Boost relevance: same list if provided
+  if (listId) {
+    // We'll handle this in post-processing to prioritize same-list tasks
+  }
+
+  const { data: tasks, error } = await query;
+
+  if (error || !tasks || tasks.length === 0) {
+    return {
+      assignee_ids: [],
+      avg_days_to_deadline: null,
+      common_priorities: {},
+      common_labels: [],
+      custom_field_patterns: {},
+      count: 0,
+    };
+  }
+
+  // Extract keywords from title for matching
+  const titleWords = title
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+
+  // Score and filter similar tasks
+  const scoredTasks = tasks
+    .map((task) => {
+      let score = 0;
+      const taskTitleLower = (task.title || "").toLowerCase();
+
+      // Same list boost
+      if (listId && task.list_id === listId) {
+        score += 10;
+      }
+
+      // Shared labels boost
+      if (currentLabelIds && currentLabelIds.length > 0) {
+        const taskLabelIds = (task.labels as Array<{ label_id: string }> | null)?.map(
+          (l) => l.label_id
+        ) || [];
+        const sharedLabels = currentLabelIds.filter((id) => taskLabelIds.includes(id));
+        score += sharedLabels.length * 5;
+      }
+
+      // Keyword matching
+      const matchingWords = titleWords.filter((word) => taskTitleLower.includes(word));
+      score += matchingWords.length * 2;
+
+      return { task, score };
+    })
+    .filter((item) => item.score > 0) // Only include tasks with some similarity
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 15) // Top 15 most similar
+    .map((item) => item.task);
+
+  if (scoredTasks.length === 0) {
+    return {
+      assignee_ids: [],
+      avg_days_to_deadline: null,
+      common_priorities: {},
+      common_labels: [],
+      custom_field_patterns: {},
+      count: 0,
+    };
+  }
+
+  // Aggregate patterns
+  const assigneeCounts = new Map<string, number>();
+  const priorityCounts = new Map<string, number>();
+  const labelCounts = new Map<string, number>();
+  const customFieldCounts = new Map<string, Map<string, number>>();
+  let totalDaysToDeadline = 0;
+  let tasksWithDeadline = 0;
+  const today = new Date();
+
+  for (const task of scoredTasks) {
+    // Count assignees
+    const assignees = (task.assignees as Array<{ user_id: string }> | null) || [];
+    for (const assignee of assignees) {
+      const count = assigneeCounts.get(assignee.user_id) || 0;
+      assigneeCounts.set(assignee.user_id, count + 1);
+    }
+
+    // Count priorities
+    if (task.priority) {
+      const count = priorityCounts.get(task.priority) || 0;
+      priorityCounts.set(task.priority, count + 1);
+    }
+
+    // Count labels
+    const labels = (task.labels as Array<{ labels: { name: string } } | null>) || [];
+    for (const label of labels) {
+      if (label.labels?.name) {
+        const count = labelCounts.get(label.labels.name) || 0;
+        labelCounts.set(label.labels.name, count + 1);
+      }
+    }
+
+    // Calculate days to deadline
+    if (task.due_date && task.created_at) {
+      const createdDate = new Date(task.created_at);
+      const dueDate = new Date(task.due_date);
+      const daysDiff = Math.ceil(
+        (dueDate.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      if (daysDiff > 0 && daysDiff < 365) {
+        // Reasonable range
+        totalDaysToDeadline += daysDiff;
+        tasksWithDeadline++;
+      }
+    }
+
+    // Count custom field values
+    const customFields = (task.custom_field_values as Array<{ field_id: string; value: string | null }> | null) || [];
+    for (const cf of customFields) {
+      if (cf.value) {
+        if (!customFieldCounts.has(cf.field_id)) {
+          customFieldCounts.set(cf.field_id, new Map());
+        }
+        const fieldMap = customFieldCounts.get(cf.field_id)!;
+        const count = fieldMap.get(cf.value) || 0;
+        fieldMap.set(cf.value, count + 1);
+      }
+    }
+  }
+
+  // Get top assignees (most frequent)
+  const topAssignees = Array.from(assigneeCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([userId]) => userId);
+
+  // Get common priorities
+  const commonPriorities: Record<string, number> = {};
+  for (const [priority, count] of priorityCounts.entries()) {
+    commonPriorities[priority] = count;
+  }
+
+  // Get common labels (appearing in at least 30% of tasks)
+  const minLabelCount = Math.ceil(scoredTasks.length * 0.3);
+  const commonLabels = Array.from(labelCounts.entries())
+    .filter(([, count]) => count >= minLabelCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([name]) => name);
+
+  // Get custom field patterns (top 2 values per field, appearing in at least 20% of tasks)
+  const customFieldPatterns: Record<string, { value: string; frequency: number }[]> = {};
+  const minCustomFieldCount = Math.ceil(scoredTasks.length * 0.2);
+
+  for (const [fieldId, valueMap] of customFieldCounts.entries()) {
+    const patterns = Array.from(valueMap.entries())
+      .filter(([, count]) => count >= minCustomFieldCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([value, count]) => ({
+        value,
+        frequency: Math.round((count / scoredTasks.length) * 100),
+      }));
+
+    if (patterns.length > 0) {
+      customFieldPatterns[fieldId] = patterns;
+    }
+  }
+
+  return {
+    assignee_ids: topAssignees,
+    avg_days_to_deadline:
+      tasksWithDeadline > 0 ? Math.round(totalDaysToDeadline / tasksWithDeadline) : null,
+    common_priorities: commonPriorities,
+    common_labels: commonLabels,
+    custom_field_patterns: customFieldPatterns,
+    count: scoredTasks.length,
+  };
+}
+
+/**
  * Suggest labels and priority for a task
  */
 export async function suggestTagsAndPriority(
   title: string,
   description: string | null,
-  boardId: string
+  boardId: string,
+  listId?: string,
+  currentLabelIds?: string[]
 ): Promise<{ success: boolean; suggestion?: AutoTagSuggestion; error?: string }> {
   const supabase = await createClient();
 
   // Get available labels for the board
   const { data: labels } = await supabase
     .from("labels")
-    .select("name")
+    .select("id, name")
     .eq("board_id", boardId);
 
   const availableLabels = labels?.map((l) => l.name) || [];
+  const labelIdMap = new Map(labels?.map((l) => [l.name.toLowerCase(), l.id]) || []);
 
+  // Get workspace members for assignee suggestions
+  const { data: board } = await supabase
+    .from("boards")
+    .select("workspace_id")
+    .eq("id", boardId)
+    .single();
+
+  let workspaceMembers: Array<{ id: string; name: string }> = [];
+  if (board?.workspace_id) {
+    const { data: members } = await supabase
+      .from("workspace_members")
+      .select("user_id, profiles(id, full_name, email)")
+      .eq("workspace_id", board.workspace_id);
+
+    if (members) {
+      workspaceMembers = members.map((m) => {
+        const profileData = m.profiles;
+        const profile = Array.isArray(profileData) ? profileData[0] : profileData;
+        return {
+          id: m.user_id,
+          name:
+            (profile as { full_name?: string; email?: string })?.full_name ||
+            (profile as { email?: string })?.email ||
+            "Unknown",
+        };
+      });
+    }
+  }
+
+  // Get custom fields for the board
+  const { data: customFields } = await supabase
+    .from("custom_fields")
+    .select("id, name, field_type, options")
+    .eq("board_id", boardId)
+    .order("position");
+
+  // Find similar tasks and aggregate patterns (0 AI tokens - pure SQL)
+  const patterns = await findSimilarTasks(title, description, boardId, listId, currentLabelIds);
+
+  // Build compact prompt with aggregated patterns
   const userPrompt = buildAutoTagPrompt(
     { title, description },
-    availableLabels
+    availableLabels,
+    patterns,
+    workspaceMembers,
+    customFields || []
   );
 
   const messages: Message[] = [
@@ -720,12 +1047,64 @@ export async function suggestTagsAndPriority(
     availableLabels.some((al) => al.toLowerCase() === l.toLowerCase())
   );
 
+  // Validate assignees exist in workspace
+  const validAssignees = (suggestion.assignees || []).filter((userId) =>
+    workspaceMembers.some((m) => m.id === userId)
+  );
+
+  // Validate custom field values
+  const validCustomFields: Record<string, string> = {};
+  if (suggestion.custom_fields && customFields) {
+    for (const [fieldId, value] of Object.entries(suggestion.custom_fields)) {
+      const field = customFields.find((f) => f.id === fieldId);
+      if (field) {
+        // Validate dropdown options
+        if (field.field_type === "dropdown" && field.options) {
+          if (field.options.includes(value)) {
+            validCustomFields[fieldId] = value;
+          }
+        } else {
+          // Text or number fields - accept any value
+          validCustomFields[fieldId] = value;
+        }
+      }
+    }
+  }
+
+  // Calculate suggested due date if pattern suggests one
+  let suggestedDueDate: string | undefined;
+  if (patterns.avg_days_to_deadline && patterns.avg_days_to_deadline > 0) {
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + patterns.avg_days_to_deadline);
+    suggestedDueDate = dueDate.toISOString().split("T")[0];
+  }
+
+  // Use pattern-based priority if AI didn't suggest one
+  let finalPriority = suggestion.priority || "medium";
+  if (patterns.common_priorities && Object.keys(patterns.common_priorities).length > 0) {
+    const topPriority = Object.entries(patterns.common_priorities).sort(
+      (a, b) => b[1] - a[1]
+    )[0][0];
+    if (!suggestion.priority) {
+      finalPriority = topPriority as "low" | "medium" | "high" | "urgent";
+    }
+  }
+
+  // Build reasoning
+  let reasoning = suggestion.reasoning || "";
+  if (patterns.count > 0) {
+    reasoning = `Based on ${patterns.count} similar task${patterns.count !== 1 ? "s" : ""}. ${reasoning}`.trim();
+  }
+
   return {
     success: true,
     suggestion: {
-      priority: suggestion.priority || "medium",
+      priority: finalPriority,
       labels: validLabels,
-      reasoning: suggestion.reasoning || "",
+      assignees: validAssignees.length > 0 ? validAssignees : undefined,
+      due_date: suggestion.due_date || suggestedDueDate,
+      custom_fields: Object.keys(validCustomFields).length > 0 ? validCustomFields : undefined,
+      reasoning,
     },
   };
 }

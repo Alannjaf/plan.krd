@@ -43,6 +43,10 @@ import { AutoTagSuggestions } from "@/components/ai/auto-tag-suggestions";
 import { useLabels } from "@/lib/query/queries/labels";
 import { useUpdateTask } from "@/lib/query/mutations/tasks";
 import { addLabelToTask } from "@/lib/actions/labels";
+import { useWorkspaceMembers } from "@/lib/query/queries/members";
+import { useCustomFields } from "@/lib/query/queries/custom-fields";
+import { addAssignee } from "@/lib/actions/assignees";
+import { setCustomFieldValue } from "@/lib/actions/custom-fields";
 
 interface TaskDetailModalProps {
   taskId: string | null;
@@ -69,6 +73,8 @@ export function TaskDetailModal({
   const unarchiveTaskMutation = useUnarchiveTask();
   const updateTaskMutation = useUpdateTask();
   const { data: boardLabels = [] } = useLabels(boardId);
+  const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
+  const { data: customFields = [] } = useCustomFields(boardId);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("comments");
   const [commentsReady, setCommentsReady] = useState(false);
@@ -294,8 +300,21 @@ export function TaskDetailModal({
                             title={task.title}
                             description={task.description}
                             boardId={boardId}
+                            listId={task.list_id}
                             currentPriority={task.priority}
                             currentLabels={task.labels?.map((l) => l.labels?.name || "") || []}
+                            currentLabelIds={task.labels?.map((l) => l.label_id) || []}
+                            currentDueDate={task.due_date}
+                            currentAssignees={task.assignees?.map((a) => a.user_id) || []}
+                            workspaceMembers={workspaceMembers.map((m) => ({
+                              id: m.user_id,
+                              name:
+                                (m.profiles as { full_name?: string; email?: string })?.full_name ||
+                                (m.profiles as { email?: string })?.email ||
+                                "Unknown",
+                              email: (m.profiles as { email?: string })?.email || null,
+                            }))}
+                            customFields={customFields}
                             onApplyPriority={(priority) => {
                               markChanged();
                               updateTaskMutation.mutate({
@@ -311,6 +330,21 @@ export function TaskDetailModal({
                                 markChanged();
                                 await addLabelToTask(task.id, label.id);
                               }
+                            }}
+                            onApplyAssignee={async (userId) => {
+                              markChanged();
+                              await addAssignee(task.id, userId);
+                            }}
+                            onApplyDueDate={(dueDate) => {
+                              markChanged();
+                              updateTaskMutation.mutate({
+                                taskId: task.id,
+                                updates: { due_date: dueDate },
+                              });
+                            }}
+                            onApplyCustomField={async (fieldId, value) => {
+                              markChanged();
+                              await setCustomFieldValue(task.id, fieldId, value);
                             }}
                           />
                         </div>

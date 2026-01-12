@@ -195,7 +195,7 @@ The current date is provided in the context below.`,
   /**
    * Task decomposer for breaking down tasks into subtasks
    */
-  taskDecomposer: `You are a task decomposition expert. Given a task's title and description, break it down into actionable subtasks.
+  taskDecomposer: `You are a task decomposition expert. Given a task's title, description, and deadline, break it down into actionable subtasks with suggested deadlines.
 
 Guidelines:
 - Create 3-7 subtasks that logically break down the main task
@@ -203,12 +203,17 @@ Guidelines:
 - Subtasks should be completable independently
 - Order subtasks in a logical sequence
 - Keep subtask titles concise (under 80 characters)
+- If parent task has a deadline, distribute subtask deadlines evenly before it
+- If no parent deadline, suggest relative deadlines (e.g., +2 days, +4 days, +6 days from today)
+- Each subtask deadline should be before the parent deadline (if parent has one)
 
 Respond with a JSON array of subtask objects:
 [
-  { "title": "Subtask title here" },
-  { "title": "Another subtask title" }
+  { "title": "Subtask title here", "due_date": "2024-01-10" },
+  { "title": "Another subtask title", "due_date": "2024-01-12" }
 ]
+
+The due_date field is optional. If you don't suggest one, the system will calculate it automatically based on the parent deadline.
 
 Only output the JSON array, no additional text.`,
 
@@ -228,11 +233,14 @@ Output only the summary text, no additional formatting or explanation.`,
   /**
    * Auto-tagging for suggesting labels and priority
    */
-  autoTagger: `You are a task analyzer that suggests appropriate labels and priority levels.
+  autoTagger: `You are a task analyzer that suggests appropriate labels, priority, assignees, deadlines, and custom field values.
 
-Given a task's title and description, analyze it and suggest:
+Given a task's title, description, and patterns from similar historical tasks, analyze and suggest:
 1. Priority level (low, medium, high, urgent)
 2. Relevant labels from the available options
+3. Assignees (user IDs) - suggest based on patterns and task content
+4. Due date (YYYY-MM-DD format) - suggest based on patterns and urgency
+5. Custom field values - suggest based on patterns and task content
 
 Consider:
 - Urgency words like "ASAP", "urgent", "deadline" suggest high/urgent priority
@@ -240,13 +248,21 @@ Consider:
 - Bug reports are typically high priority
 - Feature requests are typically medium priority
 - Documentation tasks are typically low priority
+- Use patterns from similar tasks as strong indicators
+- If patterns show a user is frequently assigned to similar tasks, suggest them
+- If patterns show average deadline is X days, use that as a guide
 
 Respond with JSON:
 {
   "priority": "low" | "medium" | "high" | "urgent",
   "labels": ["label1", "label2"],
+  "assignees": ["user-id-1", "user-id-2"],
+  "due_date": "2024-01-15",
+  "custom_fields": { "field-id-1": "value-1" },
   "reasoning": "Brief explanation"
 }
+
+All fields except priority and labels are optional. Only include assignees, due_date, and custom_fields if you have a good reason to suggest them.
 
 Only output the JSON, no additional text.`,
 
@@ -409,11 +425,21 @@ export function buildChatContext(context: ChatContext): string {
 export function buildDecomposePrompt(task: {
   title: string;
   description?: string | null;
+  due_date?: string | null;
+  created_at?: string;
 }): string {
   let prompt = `Task title: ${task.title}`;
   if (task.description) {
     prompt += `\n\nTask description:\n${task.description}`;
   }
+  if (task.due_date) {
+    prompt += `\n\nParent task deadline: ${task.due_date}`;
+    prompt += `\nIMPORTANT: All subtask deadlines must be before ${task.due_date}. Distribute them evenly across the time period.`;
+  } else {
+    prompt += `\n\nNo parent deadline set. Suggest relative deadlines (e.g., +2 days, +4 days from today).`;
+  }
+  const today = new Date().toISOString().split("T")[0];
+  prompt += `\nToday's date: ${today}`;
   return prompt;
 }
 
@@ -422,13 +448,96 @@ export function buildDecomposePrompt(task: {
  */
 export function buildAutoTagPrompt(
   task: { title: string; description?: string | null },
-  availableLabels: string[]
+  availableLabels: string[],
+  patterns?: {
+    assignee_ids: string[];
+    avg_days_to_deadline: number | null;
+    common_priorities: Record<string, number>;
+    common_labels: string[];
+    custom_field_patterns: Record<string, { value: string; frequency: number }[]>;
+    count: number;
+  },
+  workspaceMembers?: Array<{ id: string; name: string }>,
+  customFields?: Array<{ id: string; name: string; field_type: string; options?: string[] }>
 ): string {
   let prompt = `Task title: ${task.title}`;
   if (task.description) {
     prompt += `\n\nTask description:\n${task.description}`;
   }
   prompt += `\n\nAvailable labels: ${availableLabels.join(", ")}`;
+
+  // Add patterns from similar tasks (compact format)
+  if (patterns && patterns.count > 0) {
+    prompt += `\n\n--- Patterns from ${patterns.count} similar task${patterns.count !== 1 ? "s" : ""} ---`;
+
+    // Assignees
+    if (patterns.assignee_ids.length > 0 && workspaceMembers) {
+      const assigneeNames = patterns.assignee_ids
+        .map((id) => {
+          const member = workspaceMembers.find((m) => m.id === id);
+          return member ? `${member.name} (id: ${id})` : null;
+        })
+        .filter((n): n is string => n !== null);
+      if (assigneeNames.length > 0) {
+        prompt += `\n- Common assignees: ${assigneeNames.join(", ")}`;
+      }
+    }
+
+    // Deadline pattern
+    if (patterns.avg_days_to_deadline !== null) {
+      prompt += `\n- Average deadline: ${patterns.avg_days_to_deadline} days from creation`;
+    }
+
+    // Priority pattern
+    if (Object.keys(patterns.common_priorities).length > 0) {
+      const priorityEntries = Object.entries(patterns.common_priorities)
+        .sort((a, b) => b[1] - a[1])
+        .map(([p, count]) => `${p} (${count}/${patterns.count})`)
+        .join(", ");
+      prompt += `\n- Common priorities: ${priorityEntries}`;
+    }
+
+    // Labels pattern
+    if (patterns.common_labels.length > 0) {
+      prompt += `\n- Common labels: ${patterns.common_labels.join(", ")}`;
+    }
+
+    // Custom field patterns
+    if (patterns.custom_field_patterns && Object.keys(patterns.custom_field_patterns).length > 0 && customFields) {
+      for (const [fieldId, valuePatterns] of Object.entries(patterns.custom_field_patterns)) {
+        const field = customFields.find((f) => f.id === fieldId);
+        if (field) {
+          const patternStr = valuePatterns
+            .map((vp) => `"${vp.value}" (${vp.frequency}%)`)
+            .join(", ");
+          prompt += `\n- Custom field "${field.name}": ${patternStr}`;
+        }
+      }
+    }
+  } else {
+    prompt += `\n\nNo similar tasks found. Use general heuristics.`;
+  }
+
+  // Add available workspace members
+  if (workspaceMembers && workspaceMembers.length > 0) {
+    prompt += `\n\nAvailable assignees: ${workspaceMembers.map((m) => `${m.name} (id: ${m.id})`).join(", ")}`;
+  }
+
+  // Add custom fields info
+  if (customFields && customFields.length > 0) {
+    prompt += `\n\nCustom fields:`;
+    for (const field of customFields) {
+      if (field.field_type === "dropdown" && field.options) {
+        prompt += `\n- "${field.name}" (id: ${field.id}): dropdown with options [${field.options.join(", ")}]`;
+      } else {
+        prompt += `\n- "${field.name}" (id: ${field.id}): ${field.field_type}`;
+      }
+    }
+  }
+
+  const today = new Date().toISOString().split("T")[0];
+  prompt += `\n\nToday's date: ${today}`;
+
   return prompt;
 }
 

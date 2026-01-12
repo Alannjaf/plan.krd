@@ -13,8 +13,9 @@ import {
 } from "@/components/ui/dialog";
 import { decomposeTask, type DecomposedSubtask } from "@/lib/actions/ai";
 import { useCreateSubtask } from "@/lib/query/mutations/subtasks";
-import { Sparkles, Loader2, Wand2 } from "lucide-react";
+import { Sparkles, Loader2, Wand2, Calendar } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { format } from "date-fns";
 
 interface TaskDecomposerProps {
   taskId: string;
@@ -91,7 +92,11 @@ export function TaskDecomposer({
 
       // Create subtasks sequentially to maintain order using React Query mutation
       for (const subtask of selectedSubtasks) {
-        await createSubtaskMutation.mutateAsync({ taskId, title: subtask.title });
+        await createSubtaskMutation.mutateAsync({
+          taskId,
+          title: subtask.title,
+          due_date: subtask.due_date || null,
+        });
       }
 
       onSubtasksCreated();
@@ -199,7 +204,17 @@ export function TaskDecomposer({
                         onCheckedChange={() => handleToggleSelection(index)}
                         className="mt-0.5"
                       />
-                      <span className="text-sm flex-1">{subtask.title}</span>
+                      <div className="flex-1 space-y-1">
+                        <span className="text-sm block">{subtask.title}</span>
+                        {subtask.due_date && (
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Calendar className="h-3 w-3" />
+                            <span>
+                              {format(new Date(subtask.due_date), "MMM d, yyyy")}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>

@@ -16,14 +16,22 @@ export function useCreateSubtask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ taskId, title }: { taskId: string; title: string }) => {
-      const result = await createSubtask(taskId, title);
+    mutationFn: async ({
+      taskId,
+      title,
+      due_date,
+    }: {
+      taskId: string;
+      title: string;
+      due_date?: string | null;
+    }) => {
+      const result = await createSubtask(taskId, title, due_date);
       if (!result.success) {
         throw new Error(result.error || "Failed to create subtask");
       }
       return { subtask: result.subtask!, taskId };
     },
-    onMutate: async ({ taskId, title }) => {
+    onMutate: async ({ taskId, title, due_date }) => {
       // Cancel outgoing queries
       await queryClient.cancelQueries({ queryKey: taskQueryKeys.task(taskId) });
       await queryClient.cancelQueries({ queryKey: ["tasks", "board"] });
@@ -40,7 +48,7 @@ export function useCreateSubtask() {
         title,
         completed: false,
         position: (previousTask?.subtasks?.length || 0),
-        due_date: null,
+        due_date: due_date || null,
         assignee_id: null,
         assignee: null,
       };

@@ -9,17 +9,27 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { suggestTagsAndPriority, type AutoTagSuggestion } from "@/lib/actions/ai";
-import { Sparkles, Loader2, Check, Flag } from "lucide-react";
+import { Sparkles, Loader2, Check, Flag, Calendar, User, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { format } from "date-fns";
 
 interface AutoTagSuggestionsProps {
   title: string;
   description: string | null;
   boardId: string;
+  listId?: string;
   currentPriority: string | null;
   currentLabels: string[];
+  currentLabelIds?: string[];
+  currentDueDate?: string | null;
+  currentAssignees?: string[]; // User IDs
   onApplyPriority: (priority: "low" | "medium" | "high" | "urgent") => void;
   onApplyLabel: (labelName: string) => void;
+  onApplyAssignee?: (userId: string) => void;
+  onApplyDueDate?: (dueDate: string) => void;
+  onApplyCustomField?: (fieldId: string, value: string) => void;
+  workspaceMembers?: Array<{ id: string; name: string; email?: string | null }>;
+  customFields?: Array<{ id: string; name: string; field_type: string; options?: string[] }>;
   disabled?: boolean;
 }
 
@@ -34,10 +44,19 @@ export function AutoTagSuggestions({
   title,
   description,
   boardId,
+  listId,
   currentPriority,
   currentLabels,
+  currentLabelIds,
+  currentDueDate,
+  currentAssignees = [],
   onApplyPriority,
   onApplyLabel,
+  onApplyAssignee,
+  onApplyDueDate,
+  onApplyCustomField,
+  workspaceMembers = [],
+  customFields = [],
   disabled = false,
 }: AutoTagSuggestionsProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -46,11 +65,17 @@ export function AutoTagSuggestions({
   const [error, setError] = useState<string | null>(null);
   const [appliedPriority, setAppliedPriority] = useState(false);
   const [appliedLabels, setAppliedLabels] = useState<Set<string>>(new Set());
+  const [appliedAssignees, setAppliedAssignees] = useState<Set<string>>(new Set());
+  const [appliedDueDate, setAppliedDueDate] = useState(false);
+  const [appliedCustomFields, setAppliedCustomFields] = useState<Set<string>>(new Set());
 
   // Reset applied state when suggestions change
   useEffect(() => {
     setAppliedPriority(false);
     setAppliedLabels(new Set());
+    setAppliedAssignees(new Set());
+    setAppliedDueDate(false);
+    setAppliedCustomFields(new Set());
   }, [suggestion]);
 
   const handleGenerate = async () => {
@@ -64,7 +89,13 @@ export function AutoTagSuggestions({
     setSuggestion(null);
 
     try {
-      const result = await suggestTagsAndPriority(title, description, boardId);
+      const result = await suggestTagsAndPriority(
+        title,
+        description,
+        boardId,
+        listId,
+        currentLabelIds
+      );
 
       if (result.success && result.suggestion) {
         setSuggestion(result.suggestion);
@@ -98,8 +129,45 @@ export function AutoTagSuggestions({
     setAppliedLabels((prev) => new Set(prev).add(label));
   };
 
+  const handleApplyAssignee = (userId: string) => {
+    onApplyAssignee?.(userId);
+    setAppliedAssignees((prev) => new Set(prev).add(userId));
+  };
+
+  const handleApplyDueDate = () => {
+    if (suggestion?.due_date) {
+      onApplyDueDate?.(suggestion.due_date);
+      setAppliedDueDate(true);
+    }
+  };
+
+  const handleApplyCustomField = (fieldId: string, value: string) => {
+    onApplyCustomField?.(fieldId, value);
+    setAppliedCustomFields((prev) => new Set(prev).add(fieldId));
+  };
+
   const isPriorityAlreadySet = currentPriority === suggestion?.priority;
-  const hasSuggestions = suggestion && (suggestion.priority || suggestion.labels.length > 0);
+  const isDueDateAlreadySet = currentDueDate === suggestion?.due_date;
+  const hasSuggestions =
+    suggestion &&
+    (suggestion.priority ||
+      suggestion.labels.length > 0 ||
+      (suggestion.assignees && suggestion.assignees.length > 0) ||
+      suggestion.due_date ||
+      (suggestion.custom_fields && Object.keys(suggestion.custom_fields).length > 0));
+
+  const getMemberName = (userId: string) => {
+    const member = workspaceMembers.find((m) => m.id === userId);
+    return member?.name || "Unknown";
+  };
+
+  const formatDate = (dateStr: string) => {
+    try {
+      return format(new Date(dateStr), "MMM d, yyyy");
+    } catch {
+      return dateStr;
+    }
+  };
 
   return (
     <Popover open={isOpen} onOpenChange={handleOpenChange}>
@@ -179,7 +247,8 @@ export function AutoTagSuggestions({
               {/* Label Suggestions */}
               {suggestion.labels.length > 0 && (
                 <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">
+                  <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Tag className="h-3 w-3" />
                     Suggested Labels
                   </label>
                   <div className="flex flex-wrap gap-2">
@@ -213,6 +282,111 @@ export function AutoTagSuggestions({
                   </div>
                 </div>
               )}
+
+              {/* Assignee Suggestions */}
+              {suggestion.assignees && suggestion.assignees.length > 0 && onApplyAssignee && (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <User className="h-3 w-3" />
+                    Suggested Assignees
+                  </label>
+                  <div className="space-y-1.5">
+                    {suggestion.assignees.map((userId) => {
+                      const isApplied =
+                        appliedAssignees.has(userId) || currentAssignees.includes(userId);
+                      return (
+                        <div
+                          key={userId}
+                          className="flex items-center justify-between p-2 rounded-md bg-secondary/30"
+                        >
+                          <span className="text-xs">{getMemberName(userId)}</span>
+                          {isApplied ? (
+                            <Check className="h-3 w-3 text-green-500" />
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleApplyAssignee(userId)}
+                              className="h-6 text-xs"
+                            >
+                              Apply
+                            </Button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Deadline Suggestion */}
+              {suggestion.due_date && onApplyDueDate && (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    Suggested Deadline
+                  </label>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs">{formatDate(suggestion.due_date)}</span>
+                    {isDueDateAlreadySet || appliedDueDate ? (
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Check className="h-3 w-3 text-green-500" />
+                        Applied
+                      </span>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleApplyDueDate}
+                        className="h-7 text-xs"
+                      >
+                        Apply
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Custom Field Suggestions */}
+              {suggestion.custom_fields &&
+                Object.keys(suggestion.custom_fields).length > 0 &&
+                onApplyCustomField && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Suggested Custom Fields
+                    </label>
+                    <div className="space-y-1.5">
+                      {Object.entries(suggestion.custom_fields).map(([fieldId, value]) => {
+                        const field = customFields.find((f) => f.id === fieldId);
+                        const isApplied = appliedCustomFields.has(fieldId);
+                        if (!field) return null;
+                        return (
+                          <div
+                            key={fieldId}
+                            className="flex items-center justify-between p-2 rounded-md bg-secondary/30"
+                          >
+                            <div className="flex flex-col">
+                              <span className="text-xs font-medium">{field.name}</span>
+                              <span className="text-xs text-muted-foreground">{value}</span>
+                            </div>
+                            {isApplied ? (
+                              <Check className="h-3 w-3 text-green-500" />
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleApplyCustomField(fieldId, value)}
+                                className="h-6 text-xs"
+                              >
+                                Apply
+                              </Button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
               {/* Reasoning */}
               {suggestion.reasoning && (

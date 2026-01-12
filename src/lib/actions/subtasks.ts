@@ -42,7 +42,8 @@ export async function getSubtasks(taskId: string): Promise<Subtask[]> {
 
 export async function createSubtask(
   taskId: string,
-  title: string
+  title: string,
+  dueDate?: string | null
 ): Promise<{ success: boolean; subtask?: Subtask; error?: string }> {
   const supabase = await createClient();
 
@@ -56,13 +57,24 @@ export async function createSubtask(
 
   const position = existing && existing.length > 0 ? existing[0].position + 1 : 0;
 
+  const insertData: {
+    parent_task_id: string;
+    title: string;
+    position: number;
+    due_date?: string | null;
+  } = {
+    parent_task_id: taskId,
+    title,
+    position,
+  };
+
+  if (dueDate !== undefined) {
+    insertData.due_date = dueDate;
+  }
+
   const { data, error } = await supabase
     .from("subtasks")
-    .insert({
-      parent_task_id: taskId,
-      title,
-      position,
-    })
+    .insert(insertData)
     .select()
     .single();
 
