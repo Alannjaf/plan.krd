@@ -1,9 +1,17 @@
 import { SignInForm } from "@/components/auth/sign-in-form";
 import { Sparkles } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { getUser } from "@/lib/auth/actions";
 
-export default function SignInPage() {
+export default async function SignInPage() {
+  const user = await getUser();
+
+  if (user) {
+    redirect("/dashboard");
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background p-4">
       <Link href="/" className="flex items-center gap-2 mb-8">

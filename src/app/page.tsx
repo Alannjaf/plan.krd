@@ -17,7 +17,9 @@ import {
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { GoogleSignInButton } from "@/components/auth/google-signin-button";
+import { getUser } from "@/lib/auth/actions";
 
 const features = [
   {
@@ -93,7 +95,13 @@ const pricingPlans = [
   },
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const user = await getUser();
+
+  if (user) {
+    redirect("/dashboard");
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Background pattern */}
