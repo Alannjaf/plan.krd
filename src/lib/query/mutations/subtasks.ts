@@ -20,18 +20,20 @@ export function useCreateSubtask() {
       taskId,
       title,
       due_date,
+      assignee_id,
     }: {
       taskId: string;
       title: string;
       due_date?: string | null;
+      assignee_id?: string | null;
     }) => {
-      const result = await createSubtask(taskId, title, due_date);
+      const result = await createSubtask(taskId, title, due_date, assignee_id);
       if (!result.success) {
         throw new Error(result.error || "Failed to create subtask");
       }
       return { subtask: result.subtask!, taskId };
     },
-    onMutate: async ({ taskId, title, due_date }) => {
+    onMutate: async ({ taskId, title, due_date, assignee_id }) => {
       // Cancel outgoing queries
       await queryClient.cancelQueries({ queryKey: taskQueryKeys.task(taskId) });
       await queryClient.cancelQueries({ queryKey: ["tasks", "board"] });
@@ -49,8 +51,8 @@ export function useCreateSubtask() {
         completed: false,
         position: (previousTask?.subtasks?.length || 0),
         due_date: due_date || null,
-        assignee_id: null,
-        assignee: null,
+        assignee_id: assignee_id || null,
+        assignee: null, // Will be populated when real data arrives
       };
 
       // Update task cache - only if task exists in cache

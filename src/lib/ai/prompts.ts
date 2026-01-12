@@ -195,7 +195,7 @@ The current date is provided in the context below.`,
   /**
    * Task decomposer for breaking down tasks into subtasks
    */
-  taskDecomposer: `You are a task decomposition expert. Given a task's title, description, and deadline, break it down into actionable subtasks with suggested deadlines.
+  taskDecomposer: `You are a task decomposition expert. Given a task's title, description, and deadline, break it down into actionable subtasks with suggested deadlines and assignees.
 
 Guidelines:
 - Create 3-7 subtasks that logically break down the main task
@@ -207,13 +207,25 @@ Guidelines:
 - If no parent deadline, suggest relative deadlines (e.g., +2 days, +4 days, +6 days from today)
 - Each subtask deadline should be before the parent deadline (if parent has one)
 
+Assignment Guidelines:
+- For each subtask, suggest an assignee (assignee_id) based on:
+  1. Similar task patterns: If a member is frequently assigned to similar tasks, consider them for matching subtasks
+  2. Parent task assignees: Distribute parent task assignees across subtasks based on their expertise and the subtask content
+  3. Semantic matching: Match subtask keywords/content to member's historical assignments and expertise
+- If you cannot confidently suggest an assignee for a subtask, omit the assignee_id field (it will be null)
+- Only use assignee IDs that are provided in the workspace members list
+- Distribute assignees logically - don't assign all subtasks to the same person unless it makes sense
+
 Respond with a JSON array of subtask objects:
 [
-  { "title": "Subtask title here", "due_date": "2024-01-10" },
+  { "title": "Subtask title here", "due_date": "2024-01-10", "assignee_id": "user-id-123" },
   { "title": "Another subtask title", "due_date": "2024-01-12" }
 ]
 
-The due_date field is optional. If you don't suggest one, the system will calculate it automatically based on the parent deadline.
+Fields:
+- title: REQUIRED - The subtask title
+- due_date: OPTIONAL - YYYY-MM-DD format. If omitted, system will calculate automatically
+- assignee_id: OPTIONAL - User ID from the workspace members list. Only include if you can confidently suggest an assignee based on patterns and content matching
 
 Only output the JSON array, no additional text.`,
 
@@ -422,12 +434,24 @@ export function buildChatContext(context: ChatContext): string {
 /**
  * Build prompt for task decomposition
  */
-export function buildDecomposePrompt(task: {
-  title: string;
-  description?: string | null;
-  due_date?: string | null;
-  created_at?: string;
-}): string {
+export function buildDecomposePrompt(
+  task: {
+    title: string;
+    description?: string | null;
+    due_date?: string | null;
+    created_at?: string;
+  },
+  parentAssignees?: Array<{ id: string; name: string }>,
+  similarTaskPatterns?: {
+    assignee_ids: string[];
+    avg_days_to_deadline: number | null;
+    common_priorities: Record<string, number>;
+    common_labels: string[];
+    custom_field_patterns: Record<string, { value: string; frequency: number }[]>;
+    count: number;
+  },
+  workspaceMembers?: Array<{ id: string; name: string }>
+): string {
   let prompt = `Task title: ${task.title}`;
   if (task.description) {
     prompt += `\n\nTask description:\n${task.description}`;
@@ -440,6 +464,43 @@ export function buildDecomposePrompt(task: {
   }
   const today = new Date().toISOString().split("T")[0];
   prompt += `\nToday's date: ${today}`;
+
+  // Add parent task assignees
+  if (parentAssignees && parentAssignees.length > 0) {
+    prompt += `\n\n--- Parent Task Assignees ---`;
+    for (const assignee of parentAssignees) {
+      prompt += `\n• ${assignee.name} (id: ${assignee.id})`;
+    }
+    prompt += `\nConsider distributing these assignees across subtasks based on their expertise and the subtask content.`;
+  }
+
+  // Add similar task patterns
+  if (similarTaskPatterns && similarTaskPatterns.count > 0) {
+    prompt += `\n\n--- Patterns from ${similarTaskPatterns.count} similar task${similarTaskPatterns.count !== 1 ? "s" : ""} ---`;
+    
+    if (similarTaskPatterns.assignee_ids.length > 0 && workspaceMembers) {
+      const assigneeNames = similarTaskPatterns.assignee_ids
+        .map((id) => {
+          const member = workspaceMembers.find((m) => m.id === id);
+          return member ? `${member.name} (id: ${id})` : null;
+        })
+        .filter((n): n is string => n !== null);
+      if (assigneeNames.length > 0) {
+        prompt += `\n- Common assignees for similar tasks: ${assigneeNames.join(", ")}`;
+        prompt += `\n  Consider assigning subtasks to these members if the subtask content matches their typical work.`;
+      }
+    }
+  }
+
+  // Add workspace members list
+  if (workspaceMembers && workspaceMembers.length > 0) {
+    prompt += `\n\n--- Available Workspace Members ---`;
+    for (const member of workspaceMembers) {
+      prompt += `\n• ${member.name} (id: ${member.id})`;
+    }
+    prompt += `\nUse these member IDs when suggesting assignees for subtasks.`;
+  }
+
   return prompt;
 }
 

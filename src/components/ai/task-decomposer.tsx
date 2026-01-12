@@ -96,6 +96,7 @@ export function TaskDecomposer({
           taskId,
           title: subtask.title,
           due_date: subtask.due_date || null,
+          assignee_id: subtask.assignee_id || null,
         });
       }
 

@@ -30,6 +30,7 @@ export type ChatMessage = {
 export type DecomposedSubtask = {
   title: string;
   due_date?: string; // YYYY-MM-DD format
+  assignee_id?: string; // User ID for suggested assignee
 };
 
 export type AutoTagSuggestion = {
@@ -590,10 +591,10 @@ export async function decomposeTask(
 ): Promise<{ success: boolean; subtasks?: DecomposedSubtask[]; error?: string }> {
   const supabase = await createClient();
 
-  // Get the task with deadline
+  // Get the task with deadline, list_id, and board info
   const { data: task, error: taskError } = await supabase
     .from("tasks")
-    .select("title, description, due_date, created_at")
+    .select("title, description, due_date, created_at, list_id, lists(board_id, boards(workspace_id))")
     .eq("id", taskId)
     .single();
 
@@ -601,7 +602,91 @@ export async function decomposeTask(
     return { success: false, error: "Task not found" };
   }
 
-  const userPrompt = buildDecomposePrompt(task);
+  // Extract board_id and workspace_id
+  const listsData = task.lists as unknown;
+  let boardId: string | undefined;
+  let workspaceId: string | undefined;
+
+  if (listsData) {
+    if (Array.isArray(listsData)) {
+      const firstList = listsData[0] as { board_id: string; boards: { workspace_id: string } | { workspace_id: string }[] } | undefined;
+      boardId = firstList?.board_id;
+      const boardsData = firstList?.boards;
+      if (boardsData) {
+        workspaceId = Array.isArray(boardsData) ? boardsData[0]?.workspace_id : boardsData.workspace_id;
+      }
+    } else if (typeof listsData === 'object') {
+      const listObj = listsData as { board_id: string; boards: { workspace_id: string } | { workspace_id: string }[] };
+      boardId = listObj.board_id;
+      const boardsData = listObj.boards;
+      if (boardsData) {
+        workspaceId = Array.isArray(boardsData) ? boardsData[0]?.workspace_id : boardsData.workspace_id;
+      }
+    }
+  }
+
+  // Get parent task assignees
+  const { data: assignees } = await supabase
+    .from("task_assignees")
+    .select("user_id, profiles(id, full_name, email)")
+    .eq("task_id", taskId);
+
+  const parentAssignees: Array<{ id: string; name: string }> = [];
+  if (assignees) {
+    for (const assignee of assignees) {
+      const profileData = assignee.profiles;
+      const profile = Array.isArray(profileData) ? profileData[0] : profileData;
+      const name = (profile as { full_name?: string; email?: string })?.full_name ||
+                   (profile as { email?: string })?.email ||
+                   "Unknown";
+      parentAssignees.push({
+        id: assignee.user_id,
+        name,
+      });
+    }
+  }
+
+  // Get workspace members
+  let workspaceMembers: Array<{ id: string; name: string }> = [];
+  if (workspaceId) {
+    const { data: members } = await supabase
+      .from("workspace_members")
+      .select("user_id, profiles(id, full_name, email)")
+      .eq("workspace_id", workspaceId);
+
+    if (members) {
+      workspaceMembers = members.map((m) => {
+        const profileData = m.profiles;
+        const profile = Array.isArray(profileData) ? profileData[0] : profileData;
+        return {
+          id: m.user_id,
+          name:
+            (profile as { full_name?: string; email?: string })?.full_name ||
+            (profile as { email?: string })?.email ||
+            "Unknown",
+        };
+      });
+    }
+  }
+
+  // Find similar tasks to get assignee patterns
+  let similarTaskPatterns: SimilarTaskPattern | undefined;
+  if (boardId) {
+    similarTaskPatterns = await findSimilarTasks(
+      task.title,
+      task.description,
+      boardId,
+      task.list_id,
+      undefined
+    );
+  }
+
+  const userPrompt = buildDecomposePrompt(
+    task,
+    parentAssignees,
+    similarTaskPatterns,
+    workspaceMembers
+  );
   const messages: Message[] = [
     { role: "system", content: SYSTEM_PROMPTS.taskDecomposer },
     { role: "user", content: userPrompt },
@@ -619,10 +704,21 @@ export async function decomposeTask(
     return { success: false, error: "Failed to parse AI response" };
   }
 
-  // Validate subtasks and distribute deadlines
+  // Validate subtasks, assignees, and distribute deadlines
+  const validMemberIds = new Set(workspaceMembers.map((m) => m.id));
   const validSubtasks = subtasks
     .filter((s) => s.title && typeof s.title === "string")
-    .map((s) => ({ title: s.title.trim(), due_date: s.due_date }));
+    .map((s) => {
+      const subtask: DecomposedSubtask = {
+        title: s.title.trim(),
+        due_date: s.due_date,
+      };
+      // Validate assignee_id exists in workspace
+      if (s.assignee_id && validMemberIds.has(s.assignee_id)) {
+        subtask.assignee_id = s.assignee_id;
+      }
+      return subtask;
+    });
 
   if (validSubtasks.length === 0) {
     return { success: false, error: "No valid subtasks generated" };
