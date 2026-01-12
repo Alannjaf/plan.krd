@@ -12,9 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "./chat-message";
-import { chatWithDocument, type ChatMessage as ChatMessageType } from "@/lib/actions/ai";
-import { getAttachmentUrl, type Attachment } from "@/lib/actions/attachments";
-import { extractTextFromPDFUrl } from "@/lib/ai/pdf-extractor";
+import { chatWithDocument, extractPdfContent, type ChatMessage as ChatMessageType } from "@/lib/actions/ai";
+import { type Attachment } from "@/lib/actions/attachments";
 import {
   Bot,
   Send,
@@ -72,17 +71,8 @@ export function DocumentChat({
     setExtractionError(null);
 
     try {
-      // Get signed URL for the attachment
-      const { url, error: urlError } = await getAttachmentUrl(attachment.file_path);
-
-      if (urlError || !url) {
-        setExtractionError(urlError || "Could not get document URL");
-        setIsExtracting(false);
-        return;
-      }
-
-      // Extract text from PDF
-      const result = await extractTextFromPDFUrl(url);
+      // Extract text from PDF using server action
+      const result = await extractPdfContent(attachment.file_path);
 
       if (result.success && result.text) {
         setDocumentContent(result.text);

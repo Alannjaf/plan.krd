@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -23,6 +24,8 @@ import { cn } from "@/lib/utils";
 
 export function ChatWidget() {
   const params = useParams();
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const workspaceId = params?.workspaceId as string | undefined;
   const boardId = params?.boardId as string | undefined;
 
@@ -79,6 +82,16 @@ export function ChatWidget() {
             timestamp: new Date().toISOString(),
           };
           setMessages((prev) => [...prev, assistantMessage]);
+
+          // If an action was executed, invalidate queries to refresh the board
+          if (result.actionExecuted) {
+            // Invalidate all task-related queries
+            queryClient.invalidateQueries({ queryKey: ["tasks"] });
+            queryClient.invalidateQueries({ queryKey: ["lists"] });
+            queryClient.invalidateQueries({ queryKey: ["board"] });
+            // Trigger a soft refresh of the current page
+            router.refresh();
+          }
         } else {
           setError(result.error || "Failed to get response");
         }
@@ -89,7 +102,7 @@ export function ChatWidget() {
         setIsLoading(false);
       }
     },
-    [input, isLoading, messages, workspaceId, boardId]
+    [input, isLoading, messages, workspaceId, boardId, queryClient, router]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -182,7 +195,7 @@ export function ChatWidget() {
                 </div>
                 <h4 className="font-medium mb-2">How can I help you?</h4>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Ask me about your tasks, deadlines, or anything else!
+                  Ask about tasks or manage them with natural language!
                 </p>
                 <div className="space-y-2">
                   <SuggestionButton
@@ -197,14 +210,14 @@ export function ChatWidget() {
                       setInput(q);
                       inputRef.current?.focus();
                     }}
-                    text="What are my high priority tasks?"
+                    text="Create a task to review the homepage"
                   />
                   <SuggestionButton
                     onClick={(q) => {
                       setInput(q);
                       inputRef.current?.focus();
                     }}
-                    text="What tasks are assigned to me?"
+                    text="What are my high priority tasks?"
                   />
                 </div>
               </div>

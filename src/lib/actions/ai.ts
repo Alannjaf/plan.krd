@@ -12,7 +12,13 @@ import {
   buildDecomposePrompt,
   buildAutoTagPrompt,
   buildDocumentChatPrompt,
+  parseAIAction,
+  type AIAction,
+  type ChatContext,
 } from "@/lib/ai/prompts";
+import { createTask, updateTask, deleteTask, moveTask, completeTask, uncompleteTask } from "./tasks";
+import { addAssignee, removeAssignee } from "./assignees";
+import { addLabelToTask, removeLabelFromTask } from "./labels";
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -31,6 +37,165 @@ export type AutoTagSuggestion = {
 };
 
 /**
+ * Execute an AI action and return a human-readable response
+ */
+async function executeAIAction(
+  action: AIAction,
+  context: { boardId?: string; workspaceId?: string }
+): Promise<{ success: boolean; message: string; actionExecuted?: boolean }> {
+  try {
+    switch (action.action) {
+      case "CREATE_TASK": {
+        const { title, listId, priority, dueDate, description } = action.params;
+        if (!listId) {
+          return { success: false, message: "No list specified for task creation." };
+        }
+        const result = await createTask(listId, title, {
+          priority: priority as "low" | "medium" | "high" | "urgent" | undefined,
+          due_date: dueDate,
+          description,
+        });
+        if (result.success) {
+          let msg = `✅ Created task "${title}"`;
+          if (priority) msg += ` with ${priority} priority`;
+          if (dueDate) msg += `, due ${dueDate}`;
+          return { success: true, message: msg, actionExecuted: true };
+        }
+        return { success: false, message: `Failed to create task: ${result.error}` };
+      }
+
+      case "UPDATE_TASK": {
+        const { taskId, title, description, priority, dueDate } = action.params;
+        const updates: {
+          title?: string;
+          description?: string | null;
+          priority?: "low" | "medium" | "high" | "urgent" | null;
+          due_date?: string | null;
+        } = {};
+        if (title !== undefined) updates.title = title;
+        if (description !== undefined) updates.description = description;
+        if (priority !== undefined) updates.priority = priority;
+        if (dueDate !== undefined) updates.due_date = dueDate;
+
+        const result = await updateTask(taskId, updates);
+        if (result.success) {
+          const changes: string[] = [];
+          if (title) changes.push(`title to "${title}"`);
+          if (description) changes.push("description");
+          if (priority) changes.push(`priority to ${priority}`);
+          if (dueDate) changes.push(`due date to ${dueDate}`);
+          return {
+            success: true,
+            message: `✅ Updated task: ${changes.join(", ")}`,
+            actionExecuted: true,
+          };
+        }
+        return { success: false, message: `Failed to update task: ${result.error}` };
+      }
+
+      case "DELETE_TASK": {
+        const { taskId, taskTitle } = action.params;
+        const result = await deleteTask(taskId);
+        if (result.success) {
+          return {
+            success: true,
+            message: `✅ Deleted task "${taskTitle}"`,
+            actionExecuted: true,
+          };
+        }
+        return { success: false, message: `Failed to delete task: ${result.error}` };
+      }
+
+      case "MOVE_TASK": {
+        const { taskId, listId, listName } = action.params;
+        const result = await moveTask(taskId, listId, 0);
+        if (result.success) {
+          return {
+            success: true,
+            message: `✅ Moved task to "${listName}" list`,
+            actionExecuted: true,
+          };
+        }
+        return { success: false, message: `Failed to move task: ${result.error}` };
+      }
+
+      case "COMPLETE_TASK": {
+        const { taskId, completed } = action.params;
+        const result = completed 
+          ? await completeTask(taskId)
+          : await uncompleteTask(taskId);
+        if (result.success) {
+          return {
+            success: true,
+            message: completed ? "✅ Marked task as complete" : "✅ Marked task as incomplete",
+            actionExecuted: true,
+          };
+        }
+        return { success: false, message: `Failed to update task: ${result.error}` };
+      }
+
+      case "ADD_ASSIGNEE": {
+        const { taskId, userId, userName } = action.params;
+        const result = await addAssignee(taskId, userId);
+        if (result.success) {
+          return {
+            success: true,
+            message: `✅ Assigned ${userName} to the task`,
+            actionExecuted: true,
+          };
+        }
+        return { success: false, message: `Failed to add assignee: ${result.error}` };
+      }
+
+      case "REMOVE_ASSIGNEE": {
+        const { taskId, userId, userName } = action.params;
+        const result = await removeAssignee(taskId, userId);
+        if (result.success) {
+          return {
+            success: true,
+            message: `✅ Removed ${userName} from the task`,
+            actionExecuted: true,
+          };
+        }
+        return { success: false, message: `Failed to remove assignee: ${result.error}` };
+      }
+
+      case "ADD_LABEL": {
+        const { taskId, labelId, labelName } = action.params;
+        const result = await addLabelToTask(taskId, labelId);
+        if (result.success) {
+          return {
+            success: true,
+            message: `✅ Added label "${labelName}" to the task`,
+            actionExecuted: true,
+          };
+        }
+        return { success: false, message: `Failed to add label: ${result.error}` };
+      }
+
+      case "REMOVE_LABEL": {
+        const { taskId, labelId, labelName } = action.params;
+        const result = await removeLabelFromTask(taskId, labelId);
+        if (result.success) {
+          return {
+            success: true,
+            message: `✅ Removed label "${labelName}" from the task`,
+            actionExecuted: true,
+          };
+        }
+        return { success: false, message: `Failed to remove label: ${result.error}` };
+      }
+
+      default:
+        return { success: false, message: "Unknown action type" };
+    }
+  } catch (error) {
+    console.error("[AI Action] Error executing action:", error);
+    return { success: false, message: `Error: ${(error as Error).message}` };
+  }
+}
+
+/**
  * Chat with AI assistant about tasks
  */
 export async function chatWithAssistant(
@@ -40,7 +205,7 @@ export async function chatWithAssistant(
     workspaceId?: string;
     boardId?: string;
   }
-): Promise<{ success: boolean; response?: string; error?: string }> {
+): Promise<{ success: boolean; response?: string; error?: string; actionExecuted?: boolean }> {
   const supabase = await createClient();
 
   // Get current user
@@ -60,22 +225,11 @@ export async function chatWithAssistant(
     .single();
 
   // Build context based on workspace/board
-  let contextData: {
-    workspaceName?: string;
-    boardName?: string;
-    tasks?: Array<{
-      id: string;
-      title: string;
-      description?: string | null;
-      due_date?: string | null;
-      priority?: string | null;
-      status?: string;
-      assignees?: string[];
-    }>;
-    userName?: string;
-  } = {
+  const contextData: ChatContext = {
     userName: profile?.full_name || profile?.email || undefined,
   };
+
+  let workspaceIdForMembers: string | undefined;
 
   // If board context, get board tasks
   if (context.boardId) {
@@ -87,6 +241,7 @@ export async function chatWithAssistant(
 
     if (board) {
       contextData.boardName = board.name;
+      workspaceIdForMembers = board.workspace_id;
       // Handle workspaces as it can be an array or object from Supabase
       const workspaceData = board.workspaces;
       const workspace = Array.isArray(workspaceData) 
@@ -95,55 +250,67 @@ export async function chatWithAssistant(
       contextData.workspaceName = workspace?.name;
     }
 
-    // Get tasks for the board
-    const { data: tasks } = await supabase
-      .from("tasks")
-      .select(`
-        id,
-        title,
-        description,
-        due_date,
-        priority,
-        archived,
-        completed,
-        list_id,
-        lists!inner(name),
-        task_assignees(
-          profiles(full_name, email)
-        )
-      `)
-      .eq("lists.board_id", context.boardId)
-      .eq("archived", false)
-      .limit(100);
+    // Get lists for this board
+    const { data: lists } = await supabase
+      .from("lists")
+      .select("id, name")
+      .eq("board_id", context.boardId)
+      .order("position");
 
-    if (tasks) {
-      contextData.tasks = tasks.map((t) => {
-        // Handle lists - can be array or object from Supabase
-        const listData = t.lists;
-        const list = Array.isArray(listData) ? listData[0] : listData;
-        const listName = (list as { name: string } | null)?.name || "unknown";
-        
-        // Handle task_assignees - get profiles from each assignee
-        const assigneesList = t.task_assignees as Array<{ profiles: { full_name: string | null; email: string | null } | { full_name: string | null; email: string | null }[] | null }> | null;
-        const assigneeNames = assigneesList
-          ?.map((a) => {
-            const profile = Array.isArray(a.profiles) ? a.profiles[0] : a.profiles;
-            return profile?.full_name || profile?.email || "";
-          })
-          .filter(Boolean) || [];
+    if (lists && lists.length > 0) {
+      contextData.lists = lists.map((l) => ({ id: l.id, name: l.name }));
+    }
 
-        return {
-          id: t.id,
-          title: t.title,
-          description: t.description,
-          due_date: t.due_date,
-          priority: t.priority,
-          status: t.completed ? "completed" : listName,
-          assignees: assigneeNames,
-        };
-      });
+    // Get labels for this board
+    const { data: labels } = await supabase
+      .from("labels")
+      .select("id, name, color")
+      .eq("board_id", context.boardId);
+
+    if (labels && labels.length > 0) {
+      contextData.labels = labels.map((l) => ({ id: l.id, name: l.name, color: l.color }));
+    }
+
+    const listIds = lists?.map((l) => l.id) || [];
+    const listNameMap = new Map(lists?.map((l) => [l.id, l.name]) || []);
+
+    if (listIds.length > 0) {
+      // Get tasks for those lists
+      const { data: tasks } = await supabase
+        .from("tasks")
+        .select(`
+          id,
+          title,
+          description,
+          due_date,
+          priority,
+          archived,
+          completed,
+          list_id
+        `)
+        .in("list_id", listIds)
+        .eq("archived", false)
+        .limit(100);
+
+      if (tasks) {
+        contextData.tasks = tasks.map((t) => {
+          const listName = listNameMap.get(t.list_id) || "unknown";
+
+          return {
+            id: t.id,
+            title: t.title,
+            description: t.description,
+            due_date: t.due_date,
+            priority: t.priority,
+            status: t.completed ? "completed" : listName,
+            assignees: [],
+          };
+        });
+      }
     }
   } else if (context.workspaceId) {
+    workspaceIdForMembers = context.workspaceId;
+
     // Get workspace info
     const { data: workspace } = await supabase
       .from("workspaces")
@@ -155,54 +322,82 @@ export async function chatWithAssistant(
       contextData.workspaceName = workspace.name;
     }
 
-    // Get all tasks in workspace
-    const { data: tasks } = await supabase
-      .from("tasks")
-      .select(`
-        id,
-        title,
-        description,
-        due_date,
-        priority,
-        archived,
-        completed,
-        list_id,
-        lists!inner(
-          name,
-          boards!inner(workspace_id)
-        ),
-        task_assignees(
-          profiles(full_name, email)
-        )
-      `)
-      .eq("lists.boards.workspace_id", context.workspaceId)
-      .eq("archived", false)
-      .limit(100);
+    // Get all boards in this workspace
+    const { data: boards } = await supabase
+      .from("boards")
+      .select("id")
+      .eq("workspace_id", context.workspaceId);
 
-    if (tasks) {
-      contextData.tasks = tasks.map((t) => {
-        // Handle lists - can be array or object from Supabase
-        const listData = t.lists;
-        const list = Array.isArray(listData) ? listData[0] : listData;
-        const listName = (list as { name: string } | null)?.name || "unknown";
-        
-        // Handle task_assignees - get profiles from each assignee
-        const assigneesList = t.task_assignees as Array<{ profiles: { full_name: string | null; email: string | null } | { full_name: string | null; email: string | null }[] | null }> | null;
-        const assigneeNames = assigneesList
-          ?.map((a) => {
-            const profile = Array.isArray(a.profiles) ? a.profiles[0] : a.profiles;
-            return profile?.full_name || profile?.email || "";
-          })
-          .filter(Boolean) || [];
+    const boardIds = boards?.map((b) => b.id) || [];
 
+    if (boardIds.length > 0) {
+      // Get all lists for those boards
+      const { data: lists } = await supabase
+        .from("lists")
+        .select("id, name, board_id")
+        .in("board_id", boardIds)
+        .order("position");
+
+      if (lists && lists.length > 0) {
+        contextData.lists = lists.map((l) => ({ id: l.id, name: l.name }));
+      }
+
+      const listIds = lists?.map((l) => l.id) || [];
+      const listNameMap = new Map(lists?.map((l) => [l.id, l.name]) || []);
+
+      if (listIds.length > 0) {
+        // Get tasks for those lists
+        const { data: tasks } = await supabase
+          .from("tasks")
+          .select(`
+            id,
+            title,
+            description,
+            due_date,
+            priority,
+            archived,
+            completed,
+            list_id
+          `)
+          .in("list_id", listIds)
+          .eq("archived", false)
+          .limit(100);
+
+        if (tasks) {
+          contextData.tasks = tasks.map((t) => {
+            const listName = listNameMap.get(t.list_id) || "unknown";
+
+            return {
+              id: t.id,
+              title: t.title,
+              description: t.description,
+              due_date: t.due_date,
+              priority: t.priority,
+              status: t.completed ? "completed" : listName,
+              assignees: [],
+            };
+          });
+        }
+      }
+    }
+  }
+
+  // Get workspace members
+  if (workspaceIdForMembers) {
+    const { data: members } = await supabase
+      .from("workspace_members")
+      .select("user_id, profiles(id, full_name, email)")
+      .eq("workspace_id", workspaceIdForMembers);
+
+    if (members && members.length > 0) {
+      contextData.members = members.map((m) => {
+        const profileData = m.profiles;
+        const profile = Array.isArray(profileData) ? profileData[0] : profileData;
         return {
-          id: t.id,
-          title: t.title,
-          description: t.description,
-          due_date: t.due_date,
-          priority: t.priority,
-          status: t.completed ? "completed" : listName,
-          assignees: assigneeNames,
+          id: m.user_id,
+          name: (profile as { full_name?: string; email?: string })?.full_name || 
+                (profile as { email?: string })?.email || "Unknown",
+          email: (profile as { email?: string })?.email,
         };
       });
     }
@@ -210,6 +405,17 @@ export async function chatWithAssistant(
 
   // Build messages for the AI
   const contextString = buildChatContext(contextData);
+  
+  // Debug logging
+  console.log("[AI Chat] Context:", {
+    boardId: context.boardId,
+    workspaceId: context.workspaceId,
+    taskCount: contextData.tasks?.length ?? 0,
+    listCount: contextData.lists?.length ?? 0,
+    memberCount: contextData.members?.length ?? 0,
+    labelCount: contextData.labels?.length ?? 0,
+  });
+  
   const messages: Message[] = [
     {
       role: "system",
@@ -224,10 +430,24 @@ export async function chatWithAssistant(
     { role: "user" as const, content: message },
   ];
 
-  const result = await chatCompletion(messages, { temperature: 0.7 });
+  // Use lower temperature for more consistent responses
+  const result = await chatCompletion(messages, { temperature: 0.3 });
 
   if (!result.success) {
     return { success: false, error: result.error };
+  }
+
+  // Check if the response is an action
+  const action = parseAIAction(result.content || "");
+  
+  if (action) {
+    console.log("[AI Chat] Action detected:", action);
+    const actionResult = await executeAIAction(action, context);
+    return {
+      success: actionResult.success,
+      response: actionResult.message,
+      actionExecuted: actionResult.actionExecuted,
+    };
   }
 
   return { success: true, response: result.content };
@@ -362,6 +582,42 @@ export async function suggestTagsAndPriority(
       reasoning: suggestion.reasoning || "",
     },
   };
+}
+
+/**
+ * Extract text from a PDF attachment (server action)
+ */
+export async function extractPdfContent(
+  filePath: string
+): Promise<{ success: boolean; text?: string; pageCount?: number; error?: string }> {
+  try {
+    // Import pdf-extractor dynamically to keep it server-only
+    const { extractTextFromPDFUrl } = await import("@/lib/ai/pdf-extractor");
+    const { getAttachmentUrl } = await import("@/lib/actions/attachments");
+
+    // Get signed URL for the attachment
+    const { url, error: urlError } = await getAttachmentUrl(filePath);
+
+    if (urlError || !url) {
+      return { success: false, error: urlError || "Could not get document URL" };
+    }
+
+    // Extract text from PDF
+    const result = await extractTextFromPDFUrl(url);
+
+    if (result.success && result.text) {
+      return {
+        success: true,
+        text: result.text,
+        pageCount: result.pageCount,
+      };
+    } else {
+      return { success: false, error: result.error || "Failed to extract document content" };
+    }
+  } catch (err) {
+    console.error("PDF extraction error:", err);
+    return { success: false, error: "Failed to process PDF document" };
+  }
 }
 
 /**
