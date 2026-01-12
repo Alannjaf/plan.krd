@@ -17,6 +17,7 @@ type Priority = "low" | "medium" | "high" | "urgent" | null;
 interface TaskPriorityProps {
   task: TaskWithRelations;
   onChanged: () => void;
+  readOnly?: boolean;
 }
 
 const priorities = [
@@ -26,7 +27,7 @@ const priorities = [
   { value: "low", label: "Low", color: "text-blue-500" },
 ] as const;
 
-export function TaskPriority({ task, onChanged }: TaskPriorityProps) {
+export function TaskPriority({ task, onChanged, readOnly = false }: TaskPriorityProps) {
   const updateTaskMutation = useUpdateTask();
 
   const handleChange = (value: string) => {
@@ -48,7 +49,7 @@ export function TaskPriority({ task, onChanged }: TaskPriorityProps) {
         Priority
       </div>
 
-      <Select value={task.priority || "none"} onValueChange={handleChange}>
+      <Select value={task.priority || "none"} onValueChange={handleChange} disabled={readOnly}>
         <SelectTrigger className="w-full">
           <SelectValue placeholder="Set priority">
             {currentPriority ? (

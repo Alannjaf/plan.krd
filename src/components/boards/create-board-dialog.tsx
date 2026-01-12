@@ -14,8 +14,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Plus } from "lucide-react";
-import { createBoard } from "@/lib/actions/boards";
-import { useRouter } from "next/navigation";
+import { useCreateBoard } from "@/lib/query/mutations/boards";
 
 interface CreateBoardDialogProps {
   workspaceId: string;
@@ -25,22 +24,23 @@ export function CreateBoardDialog({ workspaceId }: CreateBoardDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const router = useRouter();
+  const createBoardMutation = useCreateBoard();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
-    setIsLoading(true);
-    const result = await createBoard(workspaceId, name.trim(), description.trim() || undefined);
-    setIsLoading(false);
-
-    if (result.success && result.board) {
+    try {
+      await createBoardMutation.mutateAsync({
+        workspaceId,
+        name: name.trim(),
+        description: description.trim() || undefined,
+      });
       setOpen(false);
       setName("");
       setDescription("");
-      router.refresh();
+    } catch (error) {
+      // Error is handled by React Query
     }
   };
 
@@ -89,8 +89,8 @@ export function CreateBoardDialog({ workspaceId }: CreateBoardDialogProps) {
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim() || isLoading}>
-              {isLoading ? "Creating..." : "Create Board"}
+            <Button type="submit" disabled={!name.trim() || createBoardMutation.isPending}>
+              {createBoardMutation.isPending ? "Creating..." : "Create Board"}
             </Button>
           </DialogFooter>
         </form>

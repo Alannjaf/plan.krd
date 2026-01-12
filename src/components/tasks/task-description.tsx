@@ -8,15 +8,18 @@ import { Button } from "@/components/ui/button";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { useUpdateTask } from "@/lib/query/mutations/tasks";
 import { AlignLeft, Check, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface TaskDescriptionProps {
   task: TaskWithRelations;
   onChanged: () => void;
+  readOnly?: boolean;
 }
 
 export function TaskDescription({
   task,
   onChanged,
+  readOnly = false,
 }: TaskDescriptionProps) {
   const [isEditing, setIsEditing] = useState(false);
   const updateTaskMutation = useUpdateTask();
@@ -87,8 +90,11 @@ export function TaskDescription({
         </div>
       ) : (
         <div
-          className="min-h-[60px] p-3 border border-dashed rounded-md cursor-pointer hover:border-primary/50 hover:bg-secondary/30 transition-colors"
-          onClick={() => setIsEditing(true)}
+          className={cn(
+            "min-h-[60px] p-3 border border-dashed rounded-md transition-colors",
+            !readOnly && "cursor-pointer hover:border-primary/50 hover:bg-secondary/30"
+          )}
+          onClick={() => !readOnly && setIsEditing(true)}
         >
           {task.description ? (
             <div

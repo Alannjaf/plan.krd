@@ -52,16 +52,21 @@ export async function globalSearch(query: string): Promise<SearchResult[]> {
 
   if (boards) {
     results.push(
-      ...boards.map((b) => ({
-        type: "board" as const,
-        id: b.id,
-        title: b.name,
-        description: b.description,
-        workspaceId: b.workspace_id,
-        workspaceName: (b.workspaces as { name: string })?.name || "",
-        boardId: b.id,
-        boardName: b.name,
-      }))
+      ...boards.map((b) => {
+        // Handle workspaces as array (Supabase returns arrays for relations)
+        const workspacesArray = (b.workspaces as { name: string }[] | { name: string } | null);
+        const workspace = Array.isArray(workspacesArray) ? workspacesArray[0] : workspacesArray;
+        return {
+          type: "board" as const,
+          id: b.id,
+          title: b.name,
+          description: b.description,
+          workspaceId: b.workspace_id,
+          workspaceName: workspace?.name || "",
+          boardId: b.id,
+          boardName: b.name,
+        };
+      })
     );
   }
 

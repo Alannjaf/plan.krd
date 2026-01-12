@@ -11,9 +11,10 @@ import { cn } from "@/lib/utils";
 interface TaskHeaderProps {
   task: TaskWithRelations;
   onChanged: () => void;
+  readOnly?: boolean;
 }
 
-export function TaskHeader({ task, onChanged }: TaskHeaderProps) {
+export function TaskHeader({ task, onChanged, readOnly = false }: TaskHeaderProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(task.title);
   const updateTaskMutation = useUpdateTask();
@@ -57,7 +58,7 @@ export function TaskHeader({ task, onChanged }: TaskHeaderProps) {
         <Checkbox
           checked={task.completed}
           onCheckedChange={handleCompletionToggle}
-          disabled={completeTaskMutation.isPending || uncompleteTaskMutation.isPending}
+          disabled={readOnly || completeTaskMutation.isPending || uncompleteTaskMutation.isPending}
           className="h-5 w-5 shrink-0"
         />
         {task.completed && (
@@ -87,10 +88,11 @@ export function TaskHeader({ task, onChanged }: TaskHeaderProps) {
       ) : (
         <h2
           className={cn(
-            "text-xl font-semibold cursor-pointer hover:text-primary transition-colors",
+            "text-xl font-semibold transition-colors",
+            !readOnly && "cursor-pointer hover:text-primary",
             task.completed && "line-through opacity-60"
           )}
-          onClick={() => setIsEditing(true)}
+          onClick={() => !readOnly && setIsEditing(true)}
         >
           {task.title}
         </h2>

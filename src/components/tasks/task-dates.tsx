@@ -16,9 +16,10 @@ import { cn } from "@/lib/utils";
 interface TaskDatesProps {
   task: TaskWithRelations;
   onChanged: () => void;
+  readOnly?: boolean;
 }
 
-export function TaskDates({ task, onChanged }: TaskDatesProps) {
+export function TaskDates({ task, onChanged, readOnly = false }: TaskDatesProps) {
   const updateTaskMutation = useUpdateTask();
 
   const handleDateChange = (
@@ -51,6 +52,7 @@ export function TaskDates({ task, onChanged }: TaskDatesProps) {
           <PopoverTrigger asChild>
             <Button
               variant="outline"
+              disabled={readOnly}
               className={cn(
                 "w-full justify-start text-left font-normal",
                 !task.start_date && "text-muted-foreground"
@@ -60,27 +62,29 @@ export function TaskDates({ task, onChanged }: TaskDatesProps) {
               {parsedStartDate ? format(parsedStartDate, "PPP") : "Set start date"}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={parsedStartDate}
-              onSelect={(date) => handleDateChange("start_date", date)}
-              initialFocus
-            />
-            {task.start_date && (
-              <div className="p-2 border-t">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => handleDateChange("start_date", undefined)}
-                >
-                  <X className="mr-2 h-4 w-4" />
-                  Clear
-                </Button>
-              </div>
-            )}
-          </PopoverContent>
+          {!readOnly && (
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={parsedStartDate}
+                onSelect={(date) => handleDateChange("start_date", date)}
+                initialFocus
+              />
+              {task.start_date && (
+                <div className="p-2 border-t">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => handleDateChange("start_date", undefined)}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Clear
+                  </Button>
+                </div>
+              )}
+            </PopoverContent>
+          )}
         </Popover>
       </div>
 
@@ -91,6 +95,7 @@ export function TaskDates({ task, onChanged }: TaskDatesProps) {
           <PopoverTrigger asChild>
             <Button
               variant="outline"
+              disabled={readOnly}
               className={cn(
                 "w-full justify-start text-left font-normal",
                 !task.due_date && "text-muted-foreground",
@@ -101,27 +106,29 @@ export function TaskDates({ task, onChanged }: TaskDatesProps) {
               {parsedDueDate ? format(parsedDueDate, "PPP") : "Set due date"}
             </Button>
           </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="single"
-              selected={parsedDueDate}
-              onSelect={(date) => handleDateChange("due_date", date)}
-              initialFocus
-            />
-            {task.due_date && (
-              <div className="p-2 border-t">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => handleDateChange("due_date", undefined)}
-                >
-                  <X className="mr-2 h-4 w-4" />
-                  Clear
-                </Button>
-              </div>
-            )}
-          </PopoverContent>
+          {!readOnly && (
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={parsedDueDate}
+                onSelect={(date) => handleDateChange("due_date", date)}
+                initialFocus
+              />
+              {task.due_date && (
+                <div className="p-2 border-t">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => handleDateChange("due_date", undefined)}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    Clear
+                  </Button>
+                </div>
+              )}
+            </PopoverContent>
+          )}
         </Popover>
       </div>
     </div>

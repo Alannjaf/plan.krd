@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, MoreHorizontal, Pencil, Trash2, Archive, RotateCcw, Loader2 } from "lucide-react";
-import { archiveBoard, unarchiveBoard, type Board } from "@/lib/actions/boards";
+import { type Board } from "@/lib/actions/boards";
+import { useArchiveBoard, useUnarchiveBoard } from "@/lib/query/mutations/boards";
 import { cn } from "@/lib/utils";
 import { EditBoardDialog } from "./edit-board-dialog";
 import { DeleteBoardDialog } from "./delete-board-dialog";
@@ -25,8 +26,9 @@ interface BoardCardProps {
 export function BoardCard({ board, workspaceId }: BoardCardProps) {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [isArchiving, setIsArchiving] = useState(false);
   const router = useRouter();
+  const archiveBoardMutation = useArchiveBoard();
+  const unarchiveBoardMutation = useUnarchiveBoard();
 
   const handleCardClick = () => {
     router.push(`/${workspaceId}/${board.id}`);
@@ -34,18 +36,20 @@ export function BoardCard({ board, workspaceId }: BoardCardProps) {
 
   const handleArchive = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsArchiving(true);
-    await archiveBoard(board.id);
-    setIsArchiving(false);
-    router.refresh();
+    try {
+      await archiveBoardMutation.mutateAsync(board.id);
+    } catch (error) {
+      // Error is handled by React Query
+    }
   };
 
   const handleUnarchive = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsArchiving(true);
-    await unarchiveBoard(board.id);
-    setIsArchiving(false);
-    router.refresh();
+    try {
+      await unarchiveBoardMutation.mutateAsync(board.id);
+    } catch (error) {
+      // Error is handled by React Query
+    }
   };
 
   return (
@@ -95,8 +99,8 @@ export function BoardCard({ board, workspaceId }: BoardCardProps) {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {board.archived ? (
-                  <DropdownMenuItem onClick={handleUnarchive} disabled={isArchiving}>
-                    {isArchiving ? (
+                  <DropdownMenuItem onClick={handleUnarchive} disabled={unarchiveBoardMutation.isPending}>
+                    {unarchiveBoardMutation.isPending ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <RotateCcw className="mr-2 h-4 w-4" />
@@ -104,8 +108,8 @@ export function BoardCard({ board, workspaceId }: BoardCardProps) {
                     Restore
                   </DropdownMenuItem>
                 ) : (
-                  <DropdownMenuItem onClick={handleArchive} disabled={isArchiving}>
-                    {isArchiving ? (
+                  <DropdownMenuItem onClick={handleArchive} disabled={archiveBoardMutation.isPending}>
+                    {archiveBoardMutation.isPending ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <Archive className="mr-2 h-4 w-4" />

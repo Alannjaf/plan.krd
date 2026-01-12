@@ -172,10 +172,32 @@ export async function getTasksByBoard(boardId: string): Promise<Task[]> {
 export async function getTasksWithRelations(boardId: string, includeArchived = false): Promise<TaskWithRelations[]> {
   const supabase = await createClient();
 
-  // First, get all tasks for the board (excluding archived by default)
+  // Get all tasks with relations in a single query using nested selects
   let query = supabase
     .from("tasks")
-    .select("*, lists!inner(board_id)")
+    .select(`
+      *,
+      lists!inner(board_id),
+      assignees:task_assignees(
+        id,
+        user_id,
+        profiles:profiles!task_assignees_user_id_fkey(id, email, full_name, avatar_url)
+      ),
+      labels:task_labels(
+        id,
+        label_id,
+        labels(id, name, color)
+      ),
+      subtasks(
+        id,
+        title,
+        completed,
+        position,
+        due_date,
+        assignee_id,
+        assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url)
+      )
+    `)
     .eq("lists.board_id", boardId)
     .order("position", { ascending: true });
 
@@ -196,21 +218,8 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
 
   const taskIds = tasks.map((t) => t.id);
 
-  // Fetch relations and counts in parallel
-  const [assigneesResult, labelsResult, subtasksResult, attachmentsResult, commentsResult] = await Promise.all([
-    supabase
-      .from("task_assignees")
-      .select("id, task_id, user_id, profiles:profiles!task_assignees_user_id_fkey(id, email, full_name, avatar_url)")
-      .in("task_id", taskIds),
-    supabase
-      .from("task_labels")
-      .select("id, task_id, label_id, labels(id, name, color)")
-      .in("task_id", taskIds),
-    supabase
-      .from("subtasks")
-      .select("id, parent_task_id, title, completed, position, due_date, assignee_id, assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url)")
-      .in("parent_task_id", taskIds)
-      .order("position", { ascending: true }),
+  // Fetch counts in parallel (these can't be nested efficiently)
+  const [attachmentsResult, commentsResult] = await Promise.all([
     supabase
       .from("attachments")
       .select("task_id")
@@ -221,73 +230,50 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
       .in("task_id", taskIds),
   ]);
 
-  // Group relations by task_id
-  const assigneesByTask = new Map<string, typeof assigneesResult.data>();
-  const labelsByTask = new Map<string, typeof labelsResult.data>();
-  const subtasksByTask = new Map<string, typeof subtasksResult.data>();
+  // Count attachments and comments by task_id
   const attachmentsCountByTask = new Map<string, number>();
   const commentsCountByTask = new Map<string, number>();
 
-  assigneesResult.data?.forEach((a) => {
-    const existing = assigneesByTask.get(a.task_id) || [];
-    existing.push(a);
-    assigneesByTask.set(a.task_id, existing);
-  });
-
-  labelsResult.data?.forEach((l) => {
-    const existing = labelsByTask.get(l.task_id) || [];
-    existing.push(l);
-    labelsByTask.set(l.task_id, existing);
-  });
-
-  subtasksResult.data?.forEach((s) => {
-    const existing = subtasksByTask.get(s.parent_task_id) || [];
-    existing.push(s);
-    subtasksByTask.set(s.parent_task_id, existing);
-  });
-
-  // Count attachments by task_id
   attachmentsResult.data?.forEach((a) => {
     const count = attachmentsCountByTask.get(a.task_id) || 0;
     attachmentsCountByTask.set(a.task_id, count + 1);
   });
 
-  // Count comments by task_id
   commentsResult.data?.forEach((c) => {
     const count = commentsCountByTask.get(c.task_id) || 0;
     commentsCountByTask.set(c.task_id, count + 1);
   });
 
   // Combine tasks with their relations
-  return tasks.map((task) => ({
+  return tasks.map((task: any) => ({
     ...task,
-    assignees: (assigneesByTask.get(task.id) || []).map((a) => ({
+    assignees: (task.assignees || []).map((a: any) => ({
       id: a.id,
       user_id: a.user_id,
-      profiles: a.profiles as unknown as {
+      profiles: a.profiles as {
         id: string;
         email: string | null;
         full_name: string | null;
         avatar_url: string | null;
       },
     })),
-    labels: (labelsByTask.get(task.id) || []).map((l) => ({
+    labels: (task.labels || []).map((l: any) => ({
       id: l.id,
       label_id: l.label_id,
-      labels: l.labels as unknown as {
+      labels: l.labels as {
         id: string;
         name: string;
         color: string;
       },
     })),
-    subtasks: (subtasksByTask.get(task.id) || []).map((s) => ({
+    subtasks: (task.subtasks || []).sort((a: any, b: any) => a.position - b.position).map((s: any) => ({
       id: s.id,
       title: s.title,
       completed: s.completed,
       position: s.position,
       due_date: s.due_date,
       assignee_id: s.assignee_id,
-      assignee: s.assignee as unknown as {
+      assignee: s.assignee as {
         id: string;
         email: string | null;
         full_name: string | null;
@@ -351,6 +337,9 @@ export async function createTask(
   // Log activity
   await logActivity(data.id, "created", { title });
 
+  // Note: No revalidatePath needed - React Query handles cache invalidation
+  // and realtime subscriptions handle live updates
+
   return { success: true, task: data };
 }
 
@@ -369,7 +358,7 @@ export async function updateTask(
   // Get current task for activity logging
   const { data: currentTask } = await supabase
     .from("tasks")
-    .select("title, description, priority, start_date, due_date")
+    .select("title, description, priority, start_date, due_date, list_id")
     .eq("id", taskId)
     .single();
 
@@ -402,6 +391,9 @@ export async function updateTask(
     }
   }
 
+  // Note: No revalidatePath needed - React Query handles cache invalidation
+  // and realtime subscriptions handle live updates
+
   return { success: true };
 }
 
@@ -410,12 +402,22 @@ export async function deleteTask(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
+  // Get board info before deleting
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("list_id")
+    .eq("id", taskId)
+    .single();
+
   const { error } = await supabase.from("tasks").delete().eq("id", taskId);
 
   if (error) {
     console.error("Error deleting task:", error);
     return { success: false, error: error.message };
   }
+
+  // Note: No revalidatePath needed - React Query handles cache invalidation
+  // and realtime subscriptions handle live updates
 
   return { success: true };
 }
@@ -469,6 +471,9 @@ export async function moveTask(
         .update({ position: i })
         .eq("id", updatedTasks[i].id);
     }
+
+    // Note: No revalidatePath needed - React Query handles cache invalidation
+    // and realtime subscriptions handle live updates
   } else {
     // Moving to a different list
     // Get list names for activity log
@@ -516,6 +521,9 @@ export async function moveTask(
       from: sourceList?.name || "Unknown",
       to: targetList?.name || "Unknown",
     });
+
+    // Note: No revalidatePath needed - React Query handles cache invalidation
+    // and realtime subscriptions handle live updates
   }
 
   return { success: true };
@@ -539,6 +547,9 @@ export async function reorderTasksInList(
     }
   }
 
+  // Note: No revalidatePath needed - React Query handles cache invalidation
+  // and realtime subscriptions handle live updates
+
   return { success: true };
 }
 
@@ -546,6 +557,13 @@ export async function archiveTask(
   taskId: string
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
+
+  // Get board info before updating
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("list_id")
+    .eq("id", taskId)
+    .single();
 
   const { error } = await supabase
     .from("tasks")
@@ -563,6 +581,9 @@ export async function archiveTask(
 
   await logActivity(taskId, "updated", { archived: true });
 
+  // Note: No revalidatePath needed - React Query handles cache invalidation
+  // and realtime subscriptions handle live updates
+
   return { success: true };
 }
 
@@ -570,6 +591,13 @@ export async function unarchiveTask(
   taskId: string
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
+
+  // Get board info before updating
+  const { data: task } = await supabase
+    .from("tasks")
+    .select("list_id")
+    .eq("id", taskId)
+    .single();
 
   const { error } = await supabase
     .from("tasks")
@@ -586,6 +614,9 @@ export async function unarchiveTask(
   }
 
   await logActivity(taskId, "updated", { archived: false });
+
+  // Note: No revalidatePath needed - React Query handles cache invalidation
+  // and realtime subscriptions handle live updates
 
   return { success: true };
 }
@@ -610,7 +641,9 @@ export async function completeTask(
   }
 
   await logActivity(taskId, "completed", {});
-  revalidatePath(`/dashboard`);
+
+  // Note: No revalidatePath needed - React Query handles cache invalidation
+  // and realtime subscriptions handle live updates
 
   return { success: true };
 }
@@ -635,7 +668,9 @@ export async function uncompleteTask(
   }
 
   await logActivity(taskId, "uncompleted", {});
-  revalidatePath(`/dashboard`);
+
+  // Note: No revalidatePath needed - React Query handles cache invalidation
+  // and realtime subscriptions handle live updates
 
   return { success: true };
 }

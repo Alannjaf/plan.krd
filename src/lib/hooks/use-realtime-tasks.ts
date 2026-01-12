@@ -58,13 +58,13 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
           table: "tasks",
         },
         (payload) => {
-          const taskData = payload.new as TaskPayload["new"];
-          const oldData = payload.old as { id?: string; list_id?: string };
+          const taskData = payload.new as TaskPayload["new"] | null;
+          const oldData = payload.old as { id?: string; list_id?: string } | null;
 
           // Only process if the task belongs to one of our lists
           const isRelevant = 
-            (taskData && listIds.includes(taskData.list_id)) ||
-            (oldData && oldData.list_id && listIds.includes(oldData.list_id));
+            (taskData && "list_id" in taskData && listIds.includes(taskData.list_id)) ||
+            (oldData && "list_id" in oldData && oldData.list_id && listIds.includes(oldData.list_id));
 
           if (!isRelevant) return;
 
@@ -81,8 +81,10 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
         },
         (payload) => {
           // Invalidate to refresh assignee data with profiles
-          const taskId = (payload.new as AssigneePayload["new"])?.task_id || 
-                         (payload.old as { task_id?: string })?.task_id;
+          const newData = payload.new as AssigneePayload["new"] | null;
+          const oldData = payload.old as { task_id?: string } | null;
+          const taskId = (newData && "task_id" in newData ? newData.task_id : null) || 
+                         (oldData && "task_id" in oldData ? oldData.task_id : null);
           if (taskId) {
             // Check if this task is in our board
             const tasks = queryClient.getQueryData<TaskWithRelations[]>(
@@ -103,8 +105,10 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
           table: "task_labels",
         },
         (payload) => {
-          const taskId = (payload.new as LabelPayload["new"])?.task_id || 
-                         (payload.old as { task_id?: string })?.task_id;
+          const newData = payload.new as LabelPayload["new"] | null;
+          const oldData = payload.old as { task_id?: string } | null;
+          const taskId = (newData && "task_id" in newData ? newData.task_id : null) || 
+                         (oldData && "task_id" in oldData ? oldData.task_id : null);
           if (taskId) {
             const tasks = queryClient.getQueryData<TaskWithRelations[]>(
               queryKeys.tasksByBoard(boardId)
@@ -121,8 +125,8 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
 
     function handleTaskChange(
       eventType: string,
-      newData: TaskPayload["new"],
-      oldData: { id?: string; list_id?: string }
+      newData: TaskPayload["new"] | null,
+      oldData: { id?: string; list_id?: string } | null
     ) {
       queryClient.setQueryData<TaskWithRelations[]>(
         queryKeys.tasksByBoard(boardId),
@@ -132,10 +136,24 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
           switch (eventType) {
             case "INSERT":
               // Check if task already exists (from optimistic update)
-              if (newData && !currentTasks.some(t => t.id === newData.id)) {
+              if (newData && "id" in newData && "list_id" in newData && !currentTasks.some(t => t.id === newData.id)) {
                 // Add new task with empty relations (will be populated on next fetch)
                 const newTask: TaskWithRelations = {
-                  ...newData,
+                  id: newData.id,
+                  list_id: newData.list_id,
+                  title: newData.title,
+                  description: newData.description,
+                  position: newData.position,
+                  priority: newData.priority,
+                  start_date: newData.start_date,
+                  due_date: newData.due_date,
+                  archived: newData.archived,
+                  archived_at: newData.archived_at,
+                  completed: newData.completed,
+                  completed_at: newData.completed_at,
+                  created_by: newData.created_by,
+                  created_at: newData.created_at,
+                  updated_at: newData.updated_at,
                   assignees: [],
                   labels: [],
                   subtasks: [],
@@ -148,7 +166,7 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
               return currentTasks;
 
             case "UPDATE":
-              if (newData) {
+              if (newData && "id" in newData) {
                 return currentTasks.map((task) =>
                   task.id === newData.id
                     ? { ...task, ...newData }
@@ -158,7 +176,7 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
               return currentTasks;
 
             case "DELETE":
-              if (oldData?.id) {
+              if (oldData && "id" in oldData && oldData.id) {
                 return currentTasks.filter((task) => task.id !== oldData.id);
               }
               return currentTasks;

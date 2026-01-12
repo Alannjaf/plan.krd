@@ -12,8 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { updateBoard, type Board } from "@/lib/actions/boards";
-import { useRouter } from "next/navigation";
+import { type Board } from "@/lib/actions/boards";
+import { useUpdateBoard } from "@/lib/query/mutations/boards";
 import { Loader2 } from "lucide-react";
 
 interface EditBoardDialogProps {
@@ -29,29 +29,23 @@ export function EditBoardDialog({
 }: EditBoardDialogProps) {
   const [name, setName] = useState(board.name);
   const [description, setDescription] = useState(board.description || "");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
+  const updateBoardMutation = useUpdateBoard();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
-    setIsLoading(true);
-    setError(null);
-
-    const result = await updateBoard(board.id, {
-      name: name.trim(),
-      description: description.trim() || undefined,
-    });
-
-    setIsLoading(false);
-
-    if (result.success) {
+    try {
+      await updateBoardMutation.mutateAsync({
+        boardId: board.id,
+        updates: {
+          name: name.trim(),
+          description: description.trim() || undefined,
+        },
+      });
       onOpenChange(false);
-      router.refresh();
-    } else {
-      setError(result.error || "Failed to update board");
+    } catch (error) {
+      // Error is handled by React Query
     }
   };
 
@@ -84,7 +78,13 @@ export function EditBoardDialog({
                 placeholder="What's this board for?"
               />
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            {updateBoardMutation.isError && (
+              <p className="text-sm text-destructive">
+                {updateBoardMutation.error instanceof Error
+                  ? updateBoardMutation.error.message
+                  : "Failed to update board"}
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -94,8 +94,8 @@ export function EditBoardDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim() || isLoading}>
-              {isLoading ? (
+            <Button type="submit" disabled={!name.trim() || updateBoardMutation.isPending}>
+              {updateBoardMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Saving...

@@ -54,7 +54,9 @@ export function useUpdateBoard() {
       return result;
     },
     onSuccess: () => {
+      // Invalidate all board queries since we don't know workspaceId here
       queryClient.invalidateQueries({ queryKey: ["boards"] });
+      queryClient.invalidateQueries({ queryKey: ["board"] });
     },
   });
 }
@@ -71,7 +73,9 @@ export function useDeleteBoard() {
       return result;
     },
     onSuccess: () => {
+      // Invalidate all board queries since we don't know workspaceId here
       queryClient.invalidateQueries({ queryKey: ["boards"] });
+      queryClient.invalidateQueries({ queryKey: ["board"] });
     },
   });
 }
@@ -88,7 +92,9 @@ export function useArchiveBoard() {
       return result;
     },
     onSuccess: () => {
+      // Invalidate all board queries since we don't know workspaceId here
       queryClient.invalidateQueries({ queryKey: ["boards"] });
+      queryClient.invalidateQueries({ queryKey: ["board"] });
     },
   });
 }
@@ -105,7 +111,9 @@ export function useUnarchiveBoard() {
       return result;
     },
     onSuccess: () => {
+      // Invalidate all board queries since we don't know workspaceId here
       queryClient.invalidateQueries({ queryKey: ["boards"] });
+      queryClient.invalidateQueries({ queryKey: ["board"] });
     },
   });
 }

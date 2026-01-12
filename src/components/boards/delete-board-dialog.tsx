@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,7 +10,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { deleteBoard, type Board } from "@/lib/actions/boards";
+import { type Board } from "@/lib/actions/boards";
+import { useDeleteBoard } from "@/lib/query/mutations/boards";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
@@ -28,20 +28,16 @@ export function DeleteBoardDialog({
   open,
   onOpenChange,
 }: DeleteBoardDialogProps) {
-  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
+  const deleteBoardMutation = useDeleteBoard();
 
   const handleDelete = async () => {
-    setIsLoading(true);
-
-    const result = await deleteBoard(board.id);
-
-    setIsLoading(false);
-
-    if (result.success) {
+    try {
+      await deleteBoardMutation.mutateAsync(board.id);
       onOpenChange(false);
       router.push(`/${workspaceId}`);
-      router.refresh();
+    } catch (error) {
+      // Error is handled by React Query
     }
   };
 
@@ -57,13 +53,13 @@ export function DeleteBoardDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={isLoading}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel disabled={deleteBoardMutation.isPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleDelete}
-            disabled={isLoading}
+            disabled={deleteBoardMutation.isPending}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
           >
-            {isLoading ? (
+            {deleteBoardMutation.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Deleting...

@@ -108,7 +108,17 @@ export async function createComment(
       .single();
 
     if (task) {
-      const board = (task.lists as { boards: { id: string; workspace_id: string } })?.boards;
+      // Handle lists - Supabase may return as array or single object
+      const listsData = task.lists as unknown;
+      let board: { id: string; workspace_id: string } | undefined;
+      
+      if (Array.isArray(listsData)) {
+        const firstList = listsData[0] as { boards: { id: string; workspace_id: string } } | undefined;
+        board = firstList?.boards;
+      } else if (listsData && typeof listsData === 'object') {
+        const listObj = listsData as { boards: { id: string; workspace_id: string } | { id: string; workspace_id: string }[] };
+        board = Array.isArray(listObj.boards) ? listObj.boards[0] : listObj.boards;
+      }
 
       // Look up mentioned users by email or full_name
       // Query each mention separately and combine results to avoid query syntax issues

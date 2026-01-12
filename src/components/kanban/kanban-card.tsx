@@ -13,8 +13,8 @@ import { Calendar, Flag, CheckSquare, MessageSquare, Paperclip, Archive, CheckCi
 import { cn } from "@/lib/utils";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
 import { Checkbox } from "@/components/ui/checkbox";
-import { completeTask, uncompleteTask } from "@/lib/actions/tasks";
-import { useState } from "react";
+import { useCompleteTask, useUncompleteTask } from "@/lib/query/mutations/tasks";
+import type * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 
 interface KanbanCardProps {
   task: TaskWithRelations;
@@ -30,7 +30,8 @@ const priorityColors = {
 };
 
 export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
-  const [isCompleting, setIsCompleting] = useState(false);
+  const completeTaskMutation = useCompleteTask();
+  const uncompleteTaskMutation = useUncompleteTask();
   const isOverdue =
     task.due_date && new Date(task.due_date) < new Date() && !task.completed ? true : false;
 
@@ -38,15 +39,12 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
   const totalSubtasks = task.subtasks?.length || 0;
   const hasSubtasks = totalSubtasks > 0;
 
-  const handleCompletionToggle = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsCompleting(true);
+  const handleCompletionToggle = async (checked: CheckboxPrimitive.CheckedState) => {
     if (task.completed) {
-      await uncompleteTask(task.id);
+      uncompleteTaskMutation.mutate(task.id);
     } else {
-      await completeTask(task.id);
+      completeTaskMutation.mutate(task.id);
     }
-    setIsCompleting(false);
   };
 
   const getInitials = (name: string | null, email: string | null) => {
@@ -84,9 +82,9 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
               <Checkbox
                 checked={task.completed}
                 onCheckedChange={handleCompletionToggle}
-                disabled={isCompleting}
-                onClick={(e) => e.stopPropagation()}
+                disabled={completeTaskMutation.isPending || uncompleteTaskMutation.isPending}
                 className="h-4 w-4"
+                onClick={(e) => e.stopPropagation()}
               />
               {task.completed && (
                 <CheckCircle2 className="h-4 w-4 text-green-500" />
