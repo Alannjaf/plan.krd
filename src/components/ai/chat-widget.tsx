@@ -83,12 +83,46 @@ export function ChatWidget() {
 
         // Always add assistant response if we got one (success or error)
         if (result.response) {
-          const assistantMessage: ChatMessageType = {
-            role: "assistant",
-            content: result.response,
-            timestamp: new Date().toISOString(),
-          };
-          setMessages((prev) => [...prev, assistantMessage]);
+          // Check if this is a CSV report response
+          try {
+            const parsedResponse = JSON.parse(result.response);
+            if (parsedResponse.type === "csvReport" && parsedResponse.csv) {
+              // Handle CSV download
+              const blob = new Blob([parsedResponse.csv], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = `tasks-report-${new Date().toISOString().split("T")[0]}.csv`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              URL.revokeObjectURL(url);
+
+              // Add message with download confirmation
+              const assistantMessage: ChatMessageType = {
+                role: "assistant",
+                content: parsedResponse.message || "✅ CSV report generated and downloaded",
+                timestamp: new Date().toISOString(),
+              };
+              setMessages((prev) => [...prev, assistantMessage]);
+            } else {
+              // Regular response
+              const assistantMessage: ChatMessageType = {
+                role: "assistant",
+                content: result.response,
+                timestamp: new Date().toISOString(),
+              };
+              setMessages((prev) => [...prev, assistantMessage]);
+            }
+          } catch {
+            // Not JSON, treat as regular response
+            const assistantMessage: ChatMessageType = {
+              role: "assistant",
+              content: result.response,
+              timestamp: new Date().toISOString(),
+            };
+            setMessages((prev) => [...prev, assistantMessage]);
+          }
 
           // If an action was executed successfully, invalidate queries to refresh the board
           if (result.actionExecuted) {

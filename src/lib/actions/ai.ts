@@ -14,12 +14,15 @@ import {
   buildDocumentChatPrompt,
   parseAIAction,
   parseAIActions,
+  parseReportRequest,
   type AIAction,
   type ChatContext,
+  type ReportRequest,
 } from "@/lib/ai/prompts";
 import { createTask, updateTask, deleteTask, moveTask, completeTask, uncompleteTask } from "./tasks";
 import { addAssignee, removeAssignee } from "./assignees";
 import { addLabelToTask, removeLabelFromTask } from "./labels";
+import { generateTaskReport } from "./reports";
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -502,6 +505,48 @@ export async function chatWithAssistant(
 
   if (!result.success) {
     return { success: false, error: result.error };
+  }
+
+  // Check if the response contains a report request
+  const reportRequest = parseReportRequest(result.content || "");
+  
+  if (reportRequest) {
+    console.log("[AI Chat] Report request detected:", reportRequest);
+    
+    // Generate the report
+    const reportResult = await generateTaskReport({
+      boardId: context.boardId,
+      workspaceId: context.workspaceId,
+      filters: {
+        completed: reportRequest.filters?.completed, // undefined means all tasks
+        dateRange: reportRequest.filters?.dateRange,
+        assigneeId: reportRequest.filters?.assigneeId,
+        labelId: reportRequest.filters?.labelId,
+        priority: reportRequest.filters?.priority,
+        listId: reportRequest.filters?.listId,
+      },
+      fields: reportRequest.fields || "all",
+    });
+
+    if (!reportResult.success) {
+      return {
+        success: false,
+        error: reportResult.error || "Failed to generate report",
+      };
+    }
+
+    // Return CSV in a special format that the chat widget can detect
+    // We'll encode it as a special JSON response
+    const csvResponse = {
+      type: "csvReport",
+      csv: reportResult.csv,
+      message: `✅ Generated CSV report with ${reportResult.csv?.split("\n").length - 1 || 0} task${reportResult.csv?.split("\n").length - 1 !== 1 ? "s" : ""}`,
+    };
+
+    return {
+      success: true,
+      response: JSON.stringify(csvResponse),
+    };
   }
 
   // Check if the response contains actions (single or multiple)

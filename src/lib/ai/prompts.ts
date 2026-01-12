@@ -34,6 +34,41 @@ export type AIAction =
   | { action: "ADD_LABEL"; params: { taskId: string; labelId: string; labelName: string } }
   | { action: "REMOVE_LABEL"; params: { taskId: string; labelId: string; labelName: string } };
 
+export type ReportRequest = {
+  reportRequest: true;
+  filters?: {
+    completed?: boolean;
+    dateRange?: {
+      from?: string;
+      to?: string;
+    };
+    assigneeId?: string;
+    labelId?: string;
+    priority?: "low" | "medium" | "high" | "urgent";
+    listId?: string;
+  };
+  fields?: string[] | "all";
+};
+
+/**
+ * Parse AI response to check if it's a report request
+ */
+export function parseReportRequest(response: string): ReportRequest | null {
+  try {
+    // Try to extract JSON from the response
+    const jsonMatch = response.match(/\{[\s\S]*"reportRequest"[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    if (parsed.reportRequest === true) {
+      return parsed as ReportRequest;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Parse AI response to check if it's an action
  */
@@ -182,10 +217,39 @@ AVAILABLE ACTIONS:
 - For date inputs like "tomorrow", "next week", convert to YYYY-MM-DD format
 - If you can't find a matching task/user/label in context, ask for clarification instead of guessing
 
+=== GENERATING REPORTS ===
+When users ask for reports (keywords: "report", "export", "csv", "download", "completed tasks", "generate report"), respond with a JSON object using this format:
+{"reportRequest": true, "filters": {...}, "fields": "all" | [...]}
+
+Report request format:
+{"reportRequest": true, "filters": {"completed": true, "dateRange": {"from": "2024-01-01", "to": "2024-12-31"}, "assigneeId": "user-id", "labelId": "label-id", "priority": "high"}, "fields": "all"}
+
+Filter parameters (all optional):
+- completed: boolean | undefined - If true, only completed tasks. If false, only uncompleted tasks. If omitted/undefined, ALL tasks (both completed and uncompleted).
+- dateRange: {from: "YYYY-MM-DD", to: "YYYY-MM-DD"} - Filter by completion date (only applies when completed is true)
+- assigneeId: string - Filter by assignee user ID (from workspace members)
+- labelId: string - Filter by label ID (from board labels)
+- priority: "low" | "medium" | "high" | "urgent" - Filter by priority
+- listId: string - Filter by list/status (from board lists)
+
+Fields parameter:
+- "all" - Include all fields (standard fields + all custom fields)
+- Array of field names - Include only specified fields
+
+Natural language examples:
+- "Give me a report of all completed tasks" → {"reportRequest": true, "filters": {"completed": true}, "fields": "all"}
+- "Give me a report of all tasks" or "all available tasks" → {"reportRequest": true, "filters": {}, "fields": "all"} (omit completed to get all)
+- "Export completed tasks from last month" → {"reportRequest": true, "filters": {"completed": true, "dateRange": {"from": "2024-12-01", "to": "2024-12-31"}}, "fields": "all"}
+- "CSV report of high priority completed tasks" → {"reportRequest": true, "filters": {"completed": true, "priority": "high"}, "fields": "all"}
+- "Report of completed tasks assigned to John" → {"reportRequest": true, "filters": {"completed": true, "assigneeId": "user-id-from-context"}, "fields": "all"}
+
+IMPORTANT: Only use IDs from the context. If user mentions a name (person, label, list), match it to the ID from the context section.
+
 === RESPONSE FORMAT ===
 - For QUESTIONS: Respond conversationally with markdown formatting
 - For SINGLE ACTIONS: Respond with ONLY the JSON action object
 - For MULTIPLE ACTIONS: Respond with multiple JSON action objects, one per line (e.g., "move all tasks to todo" should return one MOVE_TASK JSON per task, each on its own line)
+- For REPORT REQUESTS: Respond with ONLY the report request JSON object
   Example for bulk move:
   {"action": "MOVE_TASK", "params": {"taskId": "task-1", "listId": "list-id", "listName": "todo"}}
   {"action": "MOVE_TASK", "params": {"taskId": "task-2", "listId": "list-id", "listName": "todo"}}
