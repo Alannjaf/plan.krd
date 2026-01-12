@@ -328,18 +328,129 @@ export function TaskDetailModal({
                               const label = boardLabels.find(
                                 (l) => l.name.toLowerCase() === labelName.toLowerCase()
                               );
-                              if (label) {
-                                markChanged();
-                                await addLabelToTask(task.id, label.id);
-                                // Invalidate task cache to refresh UI
+                              if (!label) return;
+
+                              markChanged();
+
+                              // Cancel outgoing queries
+                              await queryClient.cancelQueries({ queryKey: queryKeys.task(task.id) });
+
+                              // Snapshot previous state
+                              const previousTask = queryClient.getQueryData<TaskWithRelations>(
+                                queryKeys.task(task.id)
+                              );
+
+                              // Optimistically update cache
+                              queryClient.setQueryData<TaskWithRelations>(
+                                queryKeys.task(task.id),
+                                (old) => {
+                                  if (!old) return old;
+                                  // Check if label already exists
+                                  const labelExists = old.labels?.some(
+                                    (l) => l.label_id === label.id
+                                  );
+                                  if (labelExists) return old;
+
+                                  // Add optimistic label
+                                  const optimisticLabel = {
+                                    id: `temp-${Date.now()}`,
+                                    label_id: label.id,
+                                    labels: {
+                                      id: label.id,
+                                      name: label.name,
+                                      color: label.color,
+                                    },
+                                  };
+
+                                  return {
+                                    ...old,
+                                    labels: [...(old.labels || []), optimisticLabel],
+                                  };
+                                }
+                              );
+
+                              try {
+                                const result = await addLabelToTask(task.id, label.id);
+                                if (!result.success) {
+                                  throw new Error(result.error || "Failed to add label");
+                                }
+                                // Refetch to get real data
                                 queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+                              } catch (error) {
+                                // Rollback on error
+                                if (previousTask) {
+                                  queryClient.setQueryData(queryKeys.task(task.id), previousTask);
+                                }
+                                console.error("Failed to add label:", error);
                               }
                             }}
                             onApplyAssignee={async (userId) => {
                               markChanged();
-                              await addAssignee(task.id, userId);
-                              // Invalidate task cache to refresh UI
-                              queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+
+                              // Cancel outgoing queries
+                              await queryClient.cancelQueries({ queryKey: queryKeys.task(task.id) });
+
+                              // Snapshot previous state
+                              const previousTask = queryClient.getQueryData<TaskWithRelations>(
+                                queryKeys.task(task.id)
+                              );
+
+                              // Get user profile for optimistic update
+                              const member = workspaceMembers.find((m) => m.user_id === userId);
+                              if (!member) return;
+
+                              const profile = Array.isArray(member.profiles)
+                                ? member.profiles[0]
+                                : member.profiles;
+
+                              // Optimistically update cache
+                              queryClient.setQueryData<TaskWithRelations>(
+                                queryKeys.task(task.id),
+                                (old) => {
+                                  if (!old) return old;
+                                  // Check if assignee already exists
+                                  const assigneeExists = old.assignees?.some(
+                                    (a) => a.user_id === userId
+                                  );
+                                  if (assigneeExists) return old;
+
+                                  // Add optimistic assignee
+                                  const optimisticAssignee = {
+                                    id: `temp-${Date.now()}`,
+                                    user_id: userId,
+                                    profiles: {
+                                      id: userId,
+                                      email: (profile as { email?: string })?.email || null,
+                                      full_name:
+                                        (profile as { full_name?: string })?.full_name ||
+                                        (profile as { email?: string })?.email ||
+                                        null,
+                                      avatar_url:
+                                        (profile as { avatar_url?: string })?.avatar_url || null,
+                                    },
+                                  };
+
+                                  return {
+                                    ...old,
+                                    assignees: [...(old.assignees || []), optimisticAssignee],
+                                  };
+                                }
+                              );
+
+                              try {
+                                const result = await addAssignee(task.id, userId);
+                                if (!result.success) {
+                                  throw new Error(result.error || "Failed to add assignee");
+                                }
+                                // Refetch to get real data
+                                queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+                              } catch (error) {
+                                // Rollback on error
+                                if (previousTask) {
+                                  queryClient.setQueryData(queryKeys.task(task.id), previousTask);
+                                }
+                                console.error("Failed to add assignee:", error);
+                              }
                             }}
                             onApplyDueDate={(dueDate) => {
                               markChanged();
@@ -350,9 +461,78 @@ export function TaskDetailModal({
                             }}
                             onApplyCustomField={async (fieldId, value) => {
                               markChanged();
-                              await setCustomFieldValue(task.id, fieldId, value);
-                              // Invalidate task cache to refresh UI
-                              queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+
+                              // Cancel outgoing queries
+                              await queryClient.cancelQueries({ queryKey: queryKeys.task(task.id) });
+
+                              // Snapshot previous state
+                              const previousTask = queryClient.getQueryData<TaskWithRelations>(
+                                queryKeys.task(task.id)
+                              );
+
+                              // Get custom field info
+                              const field = customFields.find((f) => f.id === fieldId);
+                              if (!field) return;
+
+                              // Optimistically update cache
+                              queryClient.setQueryData<TaskWithRelations>(
+                                queryKeys.task(task.id),
+                                (old) => {
+                                  if (!old) return old;
+
+                                  // Update or add custom field value
+                                  const existingValueIndex = old.custom_field_values?.findIndex(
+                                    (cfv) => cfv.field_id === fieldId
+                                  );
+
+                                  const optimisticValue = {
+                                    id: `temp-${Date.now()}`,
+                                    field_id: fieldId,
+                                    value,
+                                    custom_field: {
+                                      id: field.id,
+                                      name: field.name,
+                                      field_type: field.field_type as "text" | "number" | "dropdown",
+                                      options: field.options || [],
+                                      required: field.required,
+                                      position: field.position,
+                                    },
+                                  };
+
+                                  let newCustomFieldValues: typeof old.custom_field_values;
+                                  if (existingValueIndex !== undefined && existingValueIndex >= 0) {
+                                    // Update existing
+                                    newCustomFieldValues = [...(old.custom_field_values || [])];
+                                    newCustomFieldValues[existingValueIndex] = optimisticValue;
+                                  } else {
+                                    // Add new
+                                    newCustomFieldValues = [
+                                      ...(old.custom_field_values || []),
+                                      optimisticValue,
+                                    ];
+                                  }
+
+                                  return {
+                                    ...old,
+                                    custom_field_values: newCustomFieldValues,
+                                  };
+                                }
+                              );
+
+                              try {
+                                const result = await setCustomFieldValue(task.id, fieldId, value);
+                                if (!result.success) {
+                                  throw new Error(result.error || "Failed to set custom field");
+                                }
+                                // Refetch to get real data
+                                queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+                              } catch (error) {
+                                // Rollback on error
+                                if (previousTask) {
+                                  queryClient.setQueryData(queryKeys.task(task.id), previousTask);
+                                }
+                                console.error("Failed to set custom field:", error);
+                              }
                             }}
                           />
                         </div>
