@@ -19,14 +19,12 @@ interface CreateTaskDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   listId: string;
-  onTaskCreated: (task: TaskWithRelations) => void;
 }
 
 export function CreateTaskDialog({
   open,
   onOpenChange,
   listId,
-  onTaskCreated,
 }: CreateTaskDialogProps) {
   const [title, setTitle] = useState("");
   const createTaskMutation = useCreateTask();
@@ -36,24 +34,13 @@ export function CreateTaskDialog({
     if (!title.trim() || !listId) return;
 
     try {
-      const task = await createTaskMutation.mutateAsync({
+      await createTaskMutation.mutateAsync({
         listId,
         title: title.trim(),
       });
 
-      // Create a TaskWithRelations object with empty relations
-      const taskWithRelations: TaskWithRelations = {
-        ...task,
-        archived: false,
-        archived_at: null,
-        assignees: [],
-        labels: [],
-        subtasks: [],
-        custom_field_values: [],
-        attachments_count: 0,
-        comments_count: 0,
-      };
-      onTaskCreated(taskWithRelations);
+      // Realtime subscription will handle adding the task to the UI
+      // Optimistic update provides immediate feedback
       setTitle("");
       onOpenChange(false);
     } catch (error) {

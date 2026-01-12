@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -68,7 +68,7 @@ export function TaskDetailModal({
   onTaskUpdated,
   readOnly = false,
 }: TaskDetailModalProps) {
-  const { data: task, isLoading: initialLoading } = useTask(taskId, boardId);
+  const { data: taskFromQuery, isLoading: initialLoading } = useTask(taskId, boardId);
   const queryClient = useQueryClient();
   const deleteTaskMutation = useDeleteTask();
   const archiveTaskMutation = useArchiveTask();
@@ -81,9 +81,52 @@ export function TaskDetailModal({
   const [activeTab, setActiveTab] = useState("comments");
   const [commentsReady, setCommentsReady] = useState(false);
   const hasChanges = useRef(false);
+  const realTaskIdRef = useRef<string | null>(null);
+
+  // If taskId is a temp ID, try to get the task from board cache (optimistic)
+  const isTempId = taskId?.startsWith("temp-") ?? false;
+  const boardTasks = queryClient.getQueryData<TaskWithRelations[]>(queryKeys.tasksByBoard(boardId));
+  const optimisticTask = useMemo(() => {
+    if (isTempId && taskId && boardTasks) {
+      return boardTasks.find(t => t.id === taskId);
+    }
+    return null;
+  }, [isTempId, boardTasks, taskId]);
+
+  // Watch for when the real task arrives (realtime replaces temp task)
+  useEffect(() => {
+    if (isTempId && optimisticTask && boardTasks) {
+      // Look for a task with the same title and list_id but with a real UUID
+      const realTask = boardTasks.find(
+        t => !t.id.startsWith("temp-") && 
+        t.title === optimisticTask.title && 
+        t.list_id === optimisticTask.list_id
+      );
+      if (realTask && realTask.id !== realTaskIdRef.current) {
+        realTaskIdRef.current = realTask.id;
+        // Update the query cache to use the real task
+        queryClient.setQueryData(queryKeys.task(realTask.id), realTask);
+      }
+    }
+  }, [isTempId, optimisticTask, boardTasks, queryClient]);
+
+  // Use real task if available, otherwise use task from query or optimistic task
+  const task = useMemo(() => {
+    // If we have a real task ID, use it
+    if (realTaskIdRef.current && boardTasks) {
+      const realTask = boardTasks.find(t => t.id === realTaskIdRef.current);
+      if (realTask) return realTask;
+    }
+    // Use task from query (for real IDs) or optimistic task (for temp IDs)
+    return taskFromQuery || optimisticTask || null;
+  }, [taskFromQuery, optimisticTask, boardTasks]);
+
+  // Determine if we have a real task ID to use for operations
+  const effectiveTaskId = realTaskIdRef.current || (isTempId ? null : taskId);
 
   // Subscribe to realtime comment updates when modal is open
-  useRealtimeComments(open && taskId && commentsReady ? taskId : "");
+  // Only subscribe if we have a real task ID
+  useRealtimeComments(open && effectiveTaskId && commentsReady ? effectiveTaskId : "");
 
   // Defer comments loading until after task content is rendered
   // This makes the modal feel instant (shows task data first)
@@ -118,9 +161,9 @@ export function TaskDetailModal({
   };
 
   const handleDelete = async () => {
-    if (!task) return;
+    if (!task || !effectiveTaskId) return;
     try {
-      await deleteTaskMutation.mutateAsync(task.id);
+      await deleteTaskMutation.mutateAsync(effectiveTaskId);
       hasChanges.current = true;
       onTaskUpdated?.();
       onOpenChange(false);
@@ -131,12 +174,12 @@ export function TaskDetailModal({
   };
 
   const handleArchiveToggle = async () => {
-    if (!task) return;
+    if (!task || !effectiveTaskId) return;
     try {
       if (task.archived) {
-        await unarchiveTaskMutation.mutateAsync(task.id);
+        await unarchiveTaskMutation.mutateAsync(effectiveTaskId);
       } else {
-        await archiveTaskMutation.mutateAsync(task.id);
+        await archiveTaskMutation.mutateAsync(effectiveTaskId);
         // If archiving, close the modal (task disappears from board)
         onTaskUpdated?.();
         onOpenChange(false);
@@ -182,6 +225,7 @@ export function TaskDetailModal({
                         task={task}
                         onChanged={markChanged}
                         readOnly={readOnly}
+                        realTaskId={effectiveTaskId}
                       />
 
                       {/* Subtasks */}

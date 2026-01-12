@@ -135,9 +135,19 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
 
           switch (eventType) {
             case "INSERT":
-              // Check if task already exists (from optimistic update)
-              if (newData && "id" in newData && "list_id" in newData && !currentTasks.some(t => t.id === newData.id)) {
-                // Add new task with empty relations (will be populated on next fetch)
+              if (newData && "id" in newData && "list_id" in newData) {
+                // Check if task already exists (avoid duplicates)
+                if (currentTasks.some(t => t.id === newData.id)) {
+                  return currentTasks;
+                }
+
+                // Check if there's an optimistic task (temp ID) in the same list that should be replaced
+                // Optimistic tasks have IDs like "temp-1234567890"
+                const optimisticTaskIndex = currentTasks.findIndex(
+                  t => t.id.startsWith("temp-") && t.list_id === newData.list_id
+                );
+
+                // Create new task with empty relations (will be populated on next fetch)
                 const newTask: TaskWithRelations = {
                   id: newData.id,
                   list_id: newData.list_id,
@@ -161,6 +171,14 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
                   attachments_count: 0,
                   comments_count: 0,
                 };
+
+                // Replace optimistic task if found, otherwise add new task
+                if (optimisticTaskIndex !== -1) {
+                  const updatedTasks = [...currentTasks];
+                  updatedTasks[optimisticTaskIndex] = newTask;
+                  return updatedTasks;
+                }
+
                 return [...currentTasks, newTask];
               }
               return currentTasks;

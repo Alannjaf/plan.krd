@@ -52,9 +52,12 @@ export function useCreateTask() {
         queryKey: TASKS_BOARD_PARTIAL_KEY,
       });
 
+      // Create temp ID to track optimistic task
+      const tempId = `temp-${Date.now()}`;
+
       // Optimistically update all board caches
       const optimisticTask: TaskWithRelations = {
-        id: `temp-${Date.now()}`,
+        id: tempId,
         list_id: listId,
         title,
         description: options?.description || null,
@@ -83,7 +86,42 @@ export function useCreateTask() {
         }
       });
 
-      return { previousBoardQueries };
+      return { previousBoardQueries, tempId, listId, title };
+    },
+    onSuccess: (realTask, variables, context) => {
+      if (!context) return;
+
+      // Convert Task to TaskWithRelations
+      const realTaskWithRelations: TaskWithRelations = {
+        ...realTask,
+        assignees: [],
+        labels: [],
+        subtasks: [],
+        custom_field_values: [],
+        attachments_count: 0,
+        comments_count: 0,
+      };
+
+      // Replace optimistic task with real task in all board caches
+      const boardQueries = queryClient.getQueriesData<TaskWithRelations[]>({
+        queryKey: TASKS_BOARD_PARTIAL_KEY,
+      });
+
+      boardQueries.forEach(([key, data]) => {
+        if (data) {
+          const updatedTasks = data.map((task) => {
+            // Find optimistic task by temp ID
+            if (task.id === context.tempId) {
+              return realTaskWithRelations;
+            }
+            return task;
+          });
+          queryClient.setQueryData<TaskWithRelations[]>(key, updatedTasks);
+        }
+      });
+
+      // Update individual task cache
+      queryClient.setQueryData(queryKeys.task(realTask.id), realTaskWithRelations);
     },
     onError: (err, variables, context) => {
       // Restore all previous values on error

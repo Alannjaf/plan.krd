@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   DragDropContext,
   type DropResult,
@@ -27,38 +27,50 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived = false }: KanbanBoardProps) {
   const [localLists] = useState(lists);
-  const [localTasks, setLocalTasks] = useState(tasks);
+  // Only use local state for drag-and-drop optimistic updates
+  const [dragTasks, setDragTasks] = useState<TaskWithRelations[] | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [createTaskListId, setCreateTaskListId] = useState<string | null>(null);
   const [showCreateList, setShowCreateList] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const reorderTasksMutation = useReorderTasksInList();
 
-  // Sync localTasks when tasks prop changes (e.g., when toggling archived)
+  // Clear drag state when tasks prop changes (if not currently dragging)
   useEffect(() => {
-    setLocalTasks(tasks);
-  }, [tasks]);
+    if (!isDragging && dragTasks !== null) {
+      setDragTasks(null);
+    }
+  }, [tasks, isDragging, dragTasks]);
 
-  // Group tasks by list
-  const tasksByList = localTasks.reduce(
-    (acc, task) => {
-      if (!acc[task.list_id]) {
-        acc[task.list_id] = [];
-      }
-      acc[task.list_id].push(task);
-      return acc;
-    },
-    {} as Record<string, TaskWithRelations[]>
-  );
+  // Use tasks prop directly, or dragTasks during drag operations
+  const currentTasks = dragTasks ?? tasks;
 
-  // Sort tasks by position within each list
-  Object.keys(tasksByList).forEach((listId) => {
-    tasksByList[listId].sort((a, b) => a.position - b.position);
-  });
+  // Group tasks by list - use useMemo for consistency
+  const tasksByList = useMemo(() => {
+    const grouped = currentTasks.reduce(
+      (acc, task) => {
+        if (!acc[task.list_id]) {
+          acc[task.list_id] = [];
+        }
+        acc[task.list_id].push(task);
+        return acc;
+      },
+      {} as Record<string, TaskWithRelations[]>
+    );
+
+    // Sort tasks by position within each list
+    Object.keys(grouped).forEach((listId) => {
+      grouped[listId].sort((a, b) => a.position - b.position);
+    });
+
+    return grouped;
+  }, [currentTasks]);
 
   const handleDragStart = useCallback((_: DragStart) => {
     setIsDragging(true);
-  }, []);
+    // Set drag state for optimistic updates during drag
+    setDragTasks([...tasks]);
+  }, [tasks]);
 
   const handleDragEnd = useCallback(
     async (result: DropResult) => {
@@ -67,28 +79,33 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
       const { destination, source, draggableId } = result;
 
       // Dropped outside a droppable
-      if (!destination) return;
+      if (!destination) {
+        // Clear drag state if dropped outside
+        setDragTasks(null);
+        return;
+      }
 
       // No change
       if (
         destination.droppableId === source.droppableId &&
         destination.index === source.index
       ) {
+        // Clear drag state if no change
+        setDragTasks(null);
         return;
       }
 
       const sourceListId = source.droppableId;
       const destListId = destination.droppableId;
 
-      // Optimistic update
-      setLocalTasks((prevTasks) => {
-        const newTasks = [...prevTasks];
+      // Use current tasks (either from drag state or props)
+      const currentTasksForDrag = dragTasks ?? tasks;
 
-        // Find the task being moved
-        const taskIndex = newTasks.findIndex((t) => t.id === draggableId);
-        if (taskIndex === -1) return prevTasks;
-
-        const [movedTask] = newTasks.splice(taskIndex, 1);
+      // Optimistically update the UI immediately
+      const optimisticTasks = [...currentTasksForDrag];
+      const taskIndex = optimisticTasks.findIndex((t) => t.id === draggableId);
+      if (taskIndex !== -1) {
+        const [movedTask] = optimisticTasks.splice(taskIndex, 1);
 
         // Update the list_id if moving to a different list
         if (sourceListId !== destListId) {
@@ -96,7 +113,7 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
         }
 
         // Get tasks in destination list (excluding the moved task)
-        const destTasks = newTasks.filter((t) => t.list_id === destListId);
+        const destTasks = optimisticTasks.filter((t) => t.list_id === destListId);
 
         // Sort by position
         destTasks.sort((a, b) => a.position - b.position);
@@ -111,27 +128,29 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
 
         // If moving between lists, also update source list positions
         if (sourceListId !== destListId) {
-          const sourceTasks = newTasks.filter((t) => t.list_id === sourceListId);
+          const sourceTasks = optimisticTasks.filter((t) => t.list_id === sourceListId);
           sourceTasks.sort((a, b) => a.position - b.position);
           sourceTasks.forEach((task, index) => {
             task.position = index;
           });
         }
 
-        return [...newTasks.filter((t) => t.list_id !== destListId), ...destTasks];
-      });
+        // Apply optimistic update
+        const finalTasks = [...optimisticTasks.filter((t) => t.list_id !== destListId), ...destTasks];
+        setDragTasks(finalTasks);
+      }
 
-      // Persist to database
-      const destTasks = localTasks
+      // Prepare data for mutation
+      const destTasksForMutation = currentTasksForDrag
         .filter((t) => t.list_id === destListId || t.id === draggableId)
         .map((t) => (t.id === draggableId ? { ...t, list_id: destListId } : t));
 
       // Get the new order
-      const reorderedIds = [...destTasks]
+      const reorderedIds = [...destTasksForMutation]
         .filter((t) => t.list_id === destListId)
         .sort((a, b) => {
-          if (a.id === draggableId) return destination.index - destTasks.indexOf(b);
-          if (b.id === draggableId) return destTasks.indexOf(a) - destination.index;
+          if (a.id === draggableId) return destination.index - destTasksForMutation.indexOf(b);
+          if (b.id === draggableId) return destTasksForMutation.indexOf(a) - destination.index;
           return a.position - b.position;
         })
         .map((t) => t.id);
@@ -144,13 +163,15 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
 
       try {
         await reorderTasksMutation.mutateAsync({ listId: destListId, taskIds: filteredIds });
+        // Keep drag state until realtime updates the props
+        // The useEffect will clear it when tasks prop updates
       } catch (error) {
         console.error("Failed to reorder tasks:", error);
-        // Revert optimistic update on error
-        setLocalTasks(tasks);
+        // Revert optimistic update on error - clear drag state to use props
+        setDragTasks(null);
       }
     },
-    [localTasks]
+    [dragTasks, tasks, reorderTasksMutation]
   );
 
   const handleAddTask = (listId: string) => {
@@ -161,15 +182,10 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
     setSelectedTaskId(taskId);
   };
 
-  const handleTaskCreated = (task: TaskWithRelations) => {
-    setLocalTasks((prev) => [...prev, task]);
-    setCreateTaskListId(null);
-  };
-
   const handleTaskUpdated = () => {
-    // The query cache will be invalidated by the mutations, so we just need to refetch
+    // The query cache will be invalidated by the mutations
     // The component will receive updated tasks via props when the query refetches
-    setLocalTasks(tasks);
+    // No local state update needed
   };
 
   const handleListCreated = (list: List) => {
@@ -209,7 +225,6 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
         open={!!createTaskListId}
         onOpenChange={(open) => !open && setCreateTaskListId(null)}
         listId={createTaskListId || ""}
-        onTaskCreated={handleTaskCreated}
       />
 
       <CreateListDialog

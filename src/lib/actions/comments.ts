@@ -23,6 +23,11 @@ export type Comment = {
 };
 
 export async function getComments(taskId: string): Promise<Comment[]> {
+  // Skip database query if taskId is a temporary ID (optimistic update)
+  if (taskId.startsWith("temp-")) {
+    return [];
+  }
+
   const supabase = await createClient();
 
   // Get all comments for the task

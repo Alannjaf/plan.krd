@@ -16,15 +16,21 @@ interface TaskDescriptionProps {
   task: TaskWithRelations;
   onChanged: () => void;
   readOnly?: boolean;
+  realTaskId?: string | null; // Real task ID if task.id is a temp ID
 }
 
 export function TaskDescription({
   task,
   onChanged,
   readOnly = false,
+  realTaskId,
 }: TaskDescriptionProps) {
   const [isEditing, setIsEditing] = useState(false);
   const updateTaskMutation = useUpdateTask();
+
+  // Use real task ID if available, otherwise use task.id (only if not temp)
+  const effectiveTaskId = realTaskId || (task.id.startsWith("temp-") ? null : task.id);
+  const isTempId = task.id.startsWith("temp-") && !realTaskId;
 
   const editor = useEditor({
     extensions: [
@@ -44,7 +50,11 @@ export function TaskDescription({
   });
 
   const handleSave = () => {
-    if (!editor) return;
+    if (!editor || !effectiveTaskId) {
+      // If we don't have a real task ID yet, cancel editing
+      setIsEditing(false);
+      return;
+    }
 
     const html = editor.getHTML();
     const newDescription = html === "<p></p>" ? null : html;
@@ -54,7 +64,7 @@ export function TaskDescription({
     setIsEditing(false);
 
     updateTaskMutation.mutate(
-      { taskId: task.id, updates: { description: newDescription } },
+      { taskId: effectiveTaskId, updates: { description: newDescription } },
       {
         onError: () => {
           // Rollback on error
@@ -70,10 +80,15 @@ export function TaskDescription({
   };
 
   const handleApplyRewrite = (rewritten: string) => {
+    if (!effectiveTaskId) {
+      console.error("Cannot update task with temporary ID. Please wait for task to be created.");
+      return;
+    }
+
     onChanged();
     
     updateTaskMutation.mutate(
-      { taskId: task.id, updates: { description: rewritten } },
+      { taskId: effectiveTaskId, updates: { description: rewritten } },
       {
         onError: () => {
           console.error("Failed to apply rewritten description");
@@ -106,9 +121,18 @@ export function TaskDescription({
 
       {isEditing ? (
         <div className="space-y-2">
+          {isTempId && (
+            <p className="text-xs text-muted-foreground bg-muted p-2 rounded">
+              Waiting for task to be created... Changes will be saved once the task is ready.
+            </p>
+          )}
           <EditorContent editor={editor} />
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={handleSave} disabled={updateTaskMutation.isPending}>
+            <Button 
+              size="sm" 
+              onClick={handleSave} 
+              disabled={updateTaskMutation.isPending || isTempId}
+            >
               <Check className="h-4 w-4 mr-1" />
               {updateTaskMutation.isPending ? "Saving..." : "Save"}
             </Button>
@@ -122,9 +146,11 @@ export function TaskDescription({
         <div
           className={cn(
             "min-h-[60px] p-3 border border-dashed rounded-md transition-colors",
-            !readOnly && "cursor-pointer hover:border-primary/50 hover:bg-secondary/30"
+            !readOnly && !isTempId && "cursor-pointer hover:border-primary/50 hover:bg-secondary/30",
+            !readOnly && isTempId && "opacity-60 cursor-not-allowed"
           )}
-          onClick={() => !readOnly && setIsEditing(true)}
+          onClick={() => !readOnly && !isTempId && setIsEditing(true)}
+          title={isTempId ? "Wait for task to be created before editing" : undefined}
         >
           {task.description ? (
             <div

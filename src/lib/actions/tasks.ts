@@ -76,6 +76,11 @@ export type TaskWithRelations = Task & {
 };
 
 export async function getTask(taskId: string, boardId?: string): Promise<TaskWithRelations | null> {
+  // Skip database query if taskId is a temporary ID (optimistic update)
+  if (taskId.startsWith("temp-")) {
+    return null;
+  }
+
   const supabase = await createClient();
 
   const { data: task, error } = await supabase
@@ -109,6 +114,7 @@ export async function getTask(taskId: string, boardId?: string): Promise<TaskWit
   }
 
   // Get counts for attachments and comments in parallel
+  // Only query if we have a valid UUID (not temp ID)
   const [{ count: attachments_count }, { count: comments_count }] = await Promise.all([
     supabase
       .from("attachments")
@@ -353,6 +359,11 @@ export async function updateTask(
     due_date?: string | null;
   }
 ): Promise<{ success: boolean; error?: string }> {
+  // Skip database operation if taskId is a temporary ID (optimistic update)
+  if (taskId.startsWith("temp-")) {
+    return { success: false, error: "Cannot update task with temporary ID. Please wait for task to be created." };
+  }
+
   const supabase = await createClient();
 
   // Get current task for activity logging
