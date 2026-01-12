@@ -34,10 +34,11 @@ import { AttachmentList } from "./attachment-list";
 import { ActivityLog } from "./activity-log";
 import { CommentSection } from "./comment-section";
 import { CustomFields } from "./custom-fields";
-import { useTask } from "@/lib/query/queries/tasks";
+import { useTask, queryKeys } from "@/lib/query/queries/tasks";
 import { useDeleteTask, useArchiveTask, useUnarchiveTask } from "@/lib/query/mutations/tasks";
 import { useRealtimeComments } from "@/lib/hooks/use-realtime-comments";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
+import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, MessageSquare, History, Paperclip, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import { AutoTagSuggestions } from "@/components/ai/auto-tag-suggestions";
 import { useLabels } from "@/lib/query/queries/labels";
@@ -68,6 +69,7 @@ export function TaskDetailModal({
   readOnly = false,
 }: TaskDetailModalProps) {
   const { data: task, isLoading: initialLoading } = useTask(taskId, boardId);
+  const queryClient = useQueryClient();
   const deleteTaskMutation = useDeleteTask();
   const archiveTaskMutation = useArchiveTask();
   const unarchiveTaskMutation = useUnarchiveTask();
@@ -329,11 +331,15 @@ export function TaskDetailModal({
                               if (label) {
                                 markChanged();
                                 await addLabelToTask(task.id, label.id);
+                                // Invalidate task cache to refresh UI
+                                queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
                               }
                             }}
                             onApplyAssignee={async (userId) => {
                               markChanged();
                               await addAssignee(task.id, userId);
+                              // Invalidate task cache to refresh UI
+                              queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
                             }}
                             onApplyDueDate={(dueDate) => {
                               markChanged();
@@ -345,6 +351,8 @@ export function TaskDetailModal({
                             onApplyCustomField={async (fieldId, value) => {
                               markChanged();
                               await setCustomFieldValue(task.id, fieldId, value);
+                              // Invalidate task cache to refresh UI
+                              queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
                             }}
                           />
                         </div>
