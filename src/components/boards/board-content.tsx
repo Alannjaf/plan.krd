@@ -12,7 +12,7 @@ import { ViewSwitcher, type ViewType } from "./view-switcher";
 import { BoardFilter, filterTasks, type FilterState } from "./board-filter";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Archive, Eye, EyeOff } from "lucide-react";
-import { useTasksWithRelations } from "@/lib/query/queries/tasks";
+import { useTasksWithRelations, useSeedTaskCache } from "@/lib/query/queries/tasks";
 import { useRealtimeTasks } from "@/lib/hooks/use-realtime-tasks";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
 import type { List } from "@/lib/actions/lists";
@@ -51,6 +51,9 @@ export function BoardContent({
     showArchived,
     initialTasks // Pass initial data to prevent refetch
   );
+
+  // Pre-seed individual task cache so TaskDetailModal opens instantly
+  useSeedTaskCache(tasks);
 
   // Subscribe to realtime updates for tasks
   const listIds = useMemo(() => lists.map((l) => l.id), [lists]);

@@ -646,6 +646,36 @@ export async function summarizeContent(
 }
 
 /**
+ * Rewrite content to make it easier to understand
+ */
+export async function rewriteContent(
+  content: string
+): Promise<{ success: boolean; rewritten?: string; error?: string }> {
+  if (!content || content.trim().length < 10) {
+    return { success: false, error: "Content too short to rewrite" };
+  }
+
+  // Strip HTML tags for processing
+  const plainText = content.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+  const messages: Message[] = [
+    { role: "system", content: SYSTEM_PROMPTS.rewriter },
+    { role: "user", content: plainText },
+  ];
+
+  const result = await chatCompletion(messages, {
+    temperature: 0.5,
+    maxTokens: 1024,
+  });
+
+  if (!result.success || !result.content) {
+    return { success: false, error: result.error || "Failed to rewrite content" };
+  }
+
+  return { success: true, rewritten: result.content.trim() };
+}
+
+/**
  * Suggest labels and priority for a task
  */
 export async function suggestTagsAndPriority(

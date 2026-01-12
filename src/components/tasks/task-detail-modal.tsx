@@ -71,10 +71,24 @@ export function TaskDetailModal({
   const { data: boardLabels = [] } = useLabels(boardId);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("comments");
+  const [commentsReady, setCommentsReady] = useState(false);
   const hasChanges = useRef(false);
 
   // Subscribe to realtime comment updates when modal is open
-  useRealtimeComments(open && taskId ? taskId : "");
+  useRealtimeComments(open && taskId && commentsReady ? taskId : "");
+
+  // Defer comments loading until after task content is rendered
+  // This makes the modal feel instant (shows task data first)
+  useEffect(() => {
+    if (open && task && !commentsReady) {
+      // Small delay to let task content render first
+      const timer = setTimeout(() => setCommentsReady(true), 100);
+      return () => clearTimeout(timer);
+    }
+    if (!open) {
+      setCommentsReady(false);
+    }
+  }, [open, task, commentsReady]);
 
   useEffect(() => {
     if (!open) {
@@ -197,13 +211,17 @@ export function TaskDetailModal({
                           </TabsTrigger>
                         </TabsList>
                         <TabsContent value="comments" className="mt-4 flex-1 min-h-0 flex flex-col">
-                          {activeTab === "comments" && (
+                          {activeTab === "comments" && commentsReady ? (
                             <CommentSection
                               taskId={task.id}
                               workspaceId={workspaceId}
                               readOnly={readOnly}
                             />
-                          )}
+                          ) : activeTab === "comments" ? (
+                            <div className="flex justify-center py-8">
+                              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                            </div>
+                          ) : null}
                         </TabsContent>
                         <TabsContent value="attachments" className="mt-4">
                           {activeTab === "attachments" && (

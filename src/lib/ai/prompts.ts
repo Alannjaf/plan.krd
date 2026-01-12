@@ -263,6 +263,25 @@ Guidelines:
 - Format responses clearly with markdown when helpful
 
 If asked about something not in the document, respond: "I couldn't find that information in the document. The document covers: [brief summary of what it contains]"`,
+
+  /**
+   * Rewriter for simplifying task descriptions
+   */
+  rewriter: `You are a clarity expert. Rewrite the provided task description to make it easy to understand.
+
+Guidelines:
+- Simplify complex language into plain, everyday English
+- Break down technical jargon and explain it simply
+- Keep the original meaning and all important details intact
+- Use short sentences and simple words
+- Organize information with bullet points when helpful
+- Remove unnecessary filler words and redundancy
+- Highlight key action items or requirements clearly
+
+Format:
+- Output the rewritten description as clean HTML (use <p>, <ul>, <li>, <strong> tags)
+- Keep formatting minimal but effective
+- Do not add any introduction or explanation, just output the rewritten content`,
 };
 
 /**

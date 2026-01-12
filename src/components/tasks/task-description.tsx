@@ -10,6 +10,7 @@ import { useUpdateTask } from "@/lib/query/mutations/tasks";
 import { AlignLeft, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SummaryButton } from "@/components/ai/summary-button";
+import { RewriteButton } from "@/components/ai/rewrite-button";
 
 interface TaskDescriptionProps {
   task: TaskWithRelations;
@@ -68,6 +69,19 @@ export function TaskDescription({
     setIsEditing(false);
   };
 
+  const handleApplyRewrite = (rewritten: string) => {
+    onChanged();
+    
+    updateTaskMutation.mutate(
+      { taskId: task.id, updates: { description: rewritten } },
+      {
+        onError: () => {
+          console.error("Failed to apply rewritten description");
+        },
+      }
+    );
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -75,7 +89,17 @@ export function TaskDescription({
           <AlignLeft className="h-4 w-4" />
           Description
         </div>
-        {task.description && (
+        {task.description && !readOnly && (
+          <div className="flex items-center gap-1">
+            <RewriteButton
+              content={task.description}
+              onApply={handleApplyRewrite}
+              minLength={20}
+            />
+            <SummaryButton content={task.description} minLength={300} />
+          </div>
+        )}
+        {task.description && readOnly && (
           <SummaryButton content={task.description} minLength={300} />
         )}
       </div>
