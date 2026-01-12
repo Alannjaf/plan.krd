@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "./chat-message";
 import {
   chatWithAssistant,
@@ -35,12 +34,14 @@ export function ChatWidget() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
   }, [messages, isLoading]);
 
   // Focus input when opening
@@ -186,7 +187,11 @@ export function ChatWidget() {
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 px-4">
+        {/* Messages container with native scroll */}
+        <div 
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto px-4 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
+        >
           <div className="py-4 space-y-3">
             {messages.length === 0 ? (
               <div className="text-center py-8">
@@ -245,10 +250,8 @@ export function ChatWidget() {
                 {error}
               </div>
             )}
-            {/* Scroll anchor */}
-            <div ref={messagesEndRef} />
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Input */}
         <div className="p-4 border-t shrink-0">
