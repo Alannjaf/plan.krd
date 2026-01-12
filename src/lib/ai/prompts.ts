@@ -53,6 +53,75 @@ export function parseAIAction(response: string): AIAction | null {
   }
 }
 
+/**
+ * Parse AI response to extract all action objects
+ * Handles multiple JSON objects on separate lines or a JSON array
+ */
+export function parseAIActions(response: string): AIAction[] {
+  const actions: AIAction[] = [];
+  
+  try {
+    // First, try to parse as a JSON array
+    const trimmed = response.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          if (item && typeof item === 'object' && item.action && item.params) {
+            actions.push(item as AIAction);
+          }
+        }
+        return actions;
+      }
+    }
+    
+    // Primary method: Split by lines and try to parse each line as JSON
+    // This handles the most common case where AI outputs one JSON object per line
+    const lines = response.split('\n');
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith('{') && trimmedLine.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(trimmedLine);
+          if (parsed && typeof parsed === 'object' && parsed.action && parsed.params) {
+            actions.push(parsed as AIAction);
+          }
+        } catch {
+          // Skip invalid JSON lines
+          continue;
+        }
+      }
+    }
+    
+    // Fallback: Try to extract JSON objects using regex (for cases where JSON spans multiple lines)
+    if (actions.length === 0) {
+      // Match JSON objects that contain "action" field
+      // This is a fallback for edge cases
+      const jsonPattern = /\{[^{}]*(?:\{[^{}]*\}[^{}]*)*"action"[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g;
+      const matches = response.match(jsonPattern);
+      
+      if (matches) {
+        for (const match of matches) {
+          try {
+            const parsed = JSON.parse(match);
+            if (parsed && typeof parsed === 'object' && parsed.action && parsed.params) {
+              actions.push(parsed as AIAction);
+            }
+          } catch {
+            // Skip invalid JSON objects
+            continue;
+          }
+        }
+      }
+    }
+  } catch {
+    // If parsing fails entirely, return empty array
+    return [];
+  }
+  
+  return actions;
+}
+
 export const SYSTEM_PROMPTS = {
   /**
    * Chat assistant for natural language queries and task management
@@ -106,7 +175,8 @@ AVAILABLE ACTIONS:
    {"action": "REMOVE_LABEL", "params": {"taskId": "task-id", "labelId": "label-id", "labelName": "Bug"}}
 
 === IMPORTANT RULES FOR ACTIONS ===
-- When performing an action, output ONLY the JSON object, nothing else
+- When performing a SINGLE action, output ONLY the JSON object, nothing else
+- When performing MULTIPLE actions (bulk operations like "move all tasks", "delete all completed tasks"), output multiple JSON objects, one per line
 - Use IDs from the context (tasks, lists, members, labels) - never make up IDs
 - If user says "create a task" without specifying a list, use the first available list
 - For date inputs like "tomorrow", "next week", convert to YYYY-MM-DD format
@@ -114,7 +184,11 @@ AVAILABLE ACTIONS:
 
 === RESPONSE FORMAT ===
 - For QUESTIONS: Respond conversationally with markdown formatting
-- For ACTIONS: Respond with ONLY the JSON action object
+- For SINGLE ACTIONS: Respond with ONLY the JSON action object
+- For MULTIPLE ACTIONS: Respond with multiple JSON action objects, one per line (e.g., "move all tasks to todo" should return one MOVE_TASK JSON per task, each on its own line)
+  Example for bulk move:
+  {"action": "MOVE_TASK", "params": {"taskId": "task-1", "listId": "list-id", "listName": "todo"}}
+  {"action": "MOVE_TASK", "params": {"taskId": "task-2", "listId": "list-id", "listName": "todo"}}
 
 The current date is provided in the context below.`,
 

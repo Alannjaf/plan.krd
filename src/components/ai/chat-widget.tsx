@@ -68,6 +68,11 @@ export function ChatWidget() {
       setInput("");
       setIsLoading(true);
       setError(null);
+      
+      // Focus input after clearing
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
 
       try {
         // Pass the current messages (without the new user message which is already in updatedMessages)
@@ -101,6 +106,10 @@ export function ChatWidget() {
         console.error("Chat error:", err);
       } finally {
         setIsLoading(false);
+        // Focus input after loading completes
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 0);
       }
     },
     [input, isLoading, messages, workspaceId, boardId, queryClient]

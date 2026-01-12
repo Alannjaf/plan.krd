@@ -13,6 +13,7 @@ import {
   buildAutoTagPrompt,
   buildDocumentChatPrompt,
   parseAIAction,
+  parseAIActions,
   type AIAction,
   type ChatContext,
 } from "@/lib/ai/prompts";
@@ -489,16 +490,79 @@ export async function chatWithAssistant(
     return { success: false, error: result.error };
   }
 
-  // Check if the response is an action
-  const action = parseAIAction(result.content || "");
+  // Check if the response contains actions (single or multiple)
+  const actions = parseAIActions(result.content || "");
   
-  if (action) {
-    console.log("[AI Chat] Action detected:", action);
-    const actionResult = await executeAIAction(action, context);
+  if (actions.length > 0) {
+    console.log(`[AI Chat] ${actions.length} action(s) detected:`, actions);
+    
+    // Execute all actions sequentially
+    const results = await Promise.all(
+      actions.map((action) => executeAIAction(action, context))
+    );
+    
+    // Aggregate results
+    const successful = results.filter((r) => r.success);
+    const failed = results.filter((r) => !r.success);
+    const anyExecuted = results.some((r) => r.actionExecuted);
+    
+    // Build aggregated message
+    let aggregatedMessage: string;
+    
+    if (actions.length === 1) {
+      // Single action - use the original message format
+      aggregatedMessage = results[0].message;
+    } else {
+      // Multiple actions - create summary
+      if (failed.length === 0) {
+        // All succeeded
+        const actionType = actions[0].action;
+        if (actionType === "MOVE_TASK" && actions.length > 0) {
+          const listName = actions[0].params.listName || "target list";
+          aggregatedMessage = `✅ Successfully moved ${successful.length} task${successful.length !== 1 ? "s" : ""} to "${listName}"`;
+        } else if (actionType === "COMPLETE_TASK") {
+          const completed = actions[0].params.completed;
+          aggregatedMessage = `✅ ${completed ? "Marked" : "Unmarked"} ${successful.length} task${successful.length !== 1 ? "s" : ""} as ${completed ? "complete" : "incomplete"}`;
+        } else if (actionType === "DELETE_TASK") {
+          aggregatedMessage = `✅ Deleted ${successful.length} task${successful.length !== 1 ? "s" : ""}`;
+        } else if (actionType === "ADD_ASSIGNEE") {
+          const userName = actions[0].params.userName || "user";
+          aggregatedMessage = `✅ Assigned ${userName} to ${successful.length} task${successful.length !== 1 ? "s" : ""}`;
+        } else if (actionType === "REMOVE_ASSIGNEE") {
+          const userName = actions[0].params.userName || "user";
+          aggregatedMessage = `✅ Removed ${userName} from ${successful.length} task${successful.length !== 1 ? "s" : ""}`;
+        } else if (actionType === "ADD_LABEL") {
+          const labelName = actions[0].params.labelName || "label";
+          aggregatedMessage = `✅ Added label "${labelName}" to ${successful.length} task${successful.length !== 1 ? "s" : ""}`;
+        } else if (actionType === "REMOVE_LABEL") {
+          const labelName = actions[0].params.labelName || "label";
+          aggregatedMessage = `✅ Removed label "${labelName}" from ${successful.length} task${successful.length !== 1 ? "s" : ""}`;
+        } else {
+          aggregatedMessage = `✅ Successfully completed ${successful.length} action${successful.length !== 1 ? "s" : ""}`;
+        }
+      } else if (successful.length === 0) {
+        // All failed
+        const errorMsg = failed[0].message.replace(/^[✅❌⚠️]\s*/, "");
+        aggregatedMessage = `❌ All actions failed: ${errorMsg}`;
+      } else {
+        // Partial success
+        const actionType = actions[0].action;
+        let baseMessage = "";
+        if (actionType === "MOVE_TASK" && actions.length > 0) {
+          const listName = actions[0].params.listName || "target list";
+          baseMessage = `⚠️ Moved ${successful.length} task${successful.length !== 1 ? "s" : ""} to "${listName}"`;
+        } else {
+          baseMessage = `⚠️ Completed ${successful.length} action${successful.length !== 1 ? "s" : ""}`;
+        }
+        const errorMsg = failed[0].message.replace(/^[✅❌⚠️]\s*/, "");
+        aggregatedMessage = `${baseMessage}, ${failed.length} failed: ${errorMsg}`;
+      }
+    }
+    
     return {
-      success: actionResult.success,
-      response: actionResult.message,
-      actionExecuted: actionResult.actionExecuted,
+      success: successful.length > 0,
+      response: aggregatedMessage,
+      actionExecuted: anyExecuted,
     };
   }
 
