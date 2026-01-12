@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +24,6 @@ import { cn } from "@/lib/utils";
 
 export function ChatWidget() {
   const params = useParams();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const workspaceId = params?.workspaceId as string | undefined;
   const boardId = params?.boardId as string | undefined;
@@ -36,15 +35,13 @@ export function ChatWidget() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages]);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
 
   // Focus input when opening
   useEffect(() => {
@@ -64,18 +61,22 @@ export function ChatWidget() {
         timestamp: new Date().toISOString(),
       };
 
-      setMessages((prev) => [...prev, userMessage]);
+      // Add user message to state
+      const updatedMessages = [...messages, userMessage];
+      setMessages(updatedMessages);
       setInput("");
       setIsLoading(true);
       setError(null);
 
       try {
+        // Pass the current messages (without the new user message which is already in updatedMessages)
         const result = await chatWithAssistant(userMessage.content, messages, {
           workspaceId,
           boardId,
         });
 
-        if (result.success && result.response) {
+        // Always add assistant response if we got one (success or error)
+        if (result.response) {
           const assistantMessage: ChatMessageType = {
             role: "assistant",
             content: result.response,
@@ -83,17 +84,16 @@ export function ChatWidget() {
           };
           setMessages((prev) => [...prev, assistantMessage]);
 
-          // If an action was executed, invalidate queries to refresh the board
+          // If an action was executed successfully, invalidate queries to refresh the board
           if (result.actionExecuted) {
-            // Invalidate all task-related queries
+            // Invalidate all task-related queries - this is faster than router.refresh()
             queryClient.invalidateQueries({ queryKey: ["tasks"] });
             queryClient.invalidateQueries({ queryKey: ["lists"] });
             queryClient.invalidateQueries({ queryKey: ["board"] });
-            // Trigger a soft refresh of the current page
-            router.refresh();
           }
-        } else {
-          setError(result.error || "Failed to get response");
+        } else if (!result.success) {
+          // Only show error banner if we got no response at all
+          setError(result.error || "Failed to get response from AI");
         }
       } catch (err) {
         setError("Something went wrong. Please try again.");
@@ -102,7 +102,7 @@ export function ChatWidget() {
         setIsLoading(false);
       }
     },
-    [input, isLoading, messages, workspaceId, boardId, queryClient, router]
+    [input, isLoading, messages, workspaceId, boardId, queryClient]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -186,7 +186,7 @@ export function ChatWidget() {
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 px-4" ref={scrollRef}>
+        <ScrollArea className="flex-1 px-4">
           <div className="py-4 space-y-3">
             {messages.length === 0 ? (
               <div className="text-center py-8">
@@ -245,6 +245,8 @@ export function ChatWidget() {
                 {error}
               </div>
             )}
+            {/* Scroll anchor */}
+            <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
 
