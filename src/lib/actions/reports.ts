@@ -18,6 +18,14 @@ export type ReportFilters = {
 export type ReportFieldSelection = string[] | "all";
 
 /**
+ * Strip HTML tags from text content
+ */
+function stripHtmlTags(html: string | null | undefined): string {
+  if (!html) return "";
+  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
  * Escape CSV field value (handles quotes, commas, newlines)
  */
 function escapeCsvField(value: string | null | undefined): string {
@@ -73,6 +81,15 @@ async function fetchCompletedTasksForBoard(
         id,
         label_id,
         labels(id, name, color)
+      ),
+      subtasks(
+        id,
+        title,
+        completed,
+        position,
+        due_date,
+        assignee_id,
+        assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url)
       ),
       custom_field_values(
         id,
@@ -198,6 +215,20 @@ async function fetchCompletedTasksForBoard(
           color: string;
         },
       })),
+      subtasks: (task.subtasks || []).sort((a: any, b: any) => a.position - b.position).map((s: any) => ({
+        id: s.id,
+        title: s.title,
+        completed: s.completed,
+        position: s.position,
+        due_date: s.due_date,
+        assignee_id: s.assignee_id,
+        assignee: s.assignee as {
+          id: string;
+          email: string | null;
+          full_name: string | null;
+          avatar_url: string | null;
+        } | null,
+      })),
       custom_field_values: sortedCustomFieldValues,
       attachments_count: attachmentsCountByTask.get(task.id) || 0,
       comments_count: commentsCountByTask.get(task.id) || 0,
@@ -256,6 +287,15 @@ async function fetchCompletedTasksForWorkspace(
         id,
         label_id,
         labels(id, name, color)
+      ),
+      subtasks(
+        id,
+        title,
+        completed,
+        position,
+        due_date,
+        assignee_id,
+        assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url)
       ),
       custom_field_values(
         id,
@@ -371,6 +411,20 @@ async function fetchCompletedTasksForWorkspace(
           color: string;
         },
       })),
+      subtasks: (task.subtasks || []).sort((a: any, b: any) => a.position - b.position).map((s: any) => ({
+        id: s.id,
+        title: s.title,
+        completed: s.completed,
+        position: s.position,
+        due_date: s.due_date,
+        assignee_id: s.assignee_id,
+        assignee: s.assignee as {
+          id: string;
+          email: string | null;
+          full_name: string | null;
+          avatar_url: string | null;
+        } | null,
+      })),
       custom_field_values: sortedCustomFieldValues,
       attachments_count: attachmentsCountByTask.get(task.id) || 0,
       comments_count: commentsCountByTask.get(task.id) || 0,
@@ -423,6 +477,9 @@ export async function generateTaskReport(params: {
       "Status/List",
       "Assignees",
       "Labels",
+      "Subtasks",
+      "Subtask Deadlines",
+      "Subtask Assignees",
     ];
     return { success: true, csv: headers.join(",") + "\n" };
   }
@@ -481,6 +538,9 @@ export async function generateTaskReport(params: {
     "Status/List",
     "Assignees",
     "Labels",
+    "Subtasks",
+    "Subtask Deadlines",
+    "Subtask Assignees",
   ];
 
   const customFieldHeaders = allCustomFields.map((cf) => escapeCsvField(cf.name));
@@ -518,6 +578,26 @@ export async function generateTaskReport(params: {
       .filter((n) => n)
       .join(", ");
 
+    // Get subtask information
+    const subtaskTitles = (task.subtasks || [])
+      .map((st) => st.title || "")
+      .filter((t) => t)
+      .join(", ");
+    
+    const subtaskDeadlines = (task.subtasks || [])
+      .map((st) => st.due_date || "")
+      .join(", ");
+    
+    const subtaskAssignees = (task.subtasks || [])
+      .map((st) => {
+        if (st.assignee) {
+          return st.assignee.full_name || st.assignee.email || "Unknown";
+        }
+        return "";
+      })
+      .filter((a) => a)
+      .join(", ");
+
     // Build custom field values map
     const customFieldValuesMap = new Map<string, string>();
     (task.custom_field_values || []).forEach((cfv: any) => {
@@ -526,10 +606,13 @@ export async function generateTaskReport(params: {
       }
     });
 
+    // Strip HTML from description
+    const cleanDescription = stripHtmlTags(task.description);
+
     // Build row
     const row = [
       escapeCsvField(task.title),
-      escapeCsvField(task.description),
+      escapeCsvField(cleanDescription),
       escapeCsvField(task.priority),
       escapeCsvField(task.due_date),
       escapeCsvField(task.start_date),
@@ -537,6 +620,9 @@ export async function generateTaskReport(params: {
       escapeCsvField(listName),
       escapeCsvField(assigneeNames),
       escapeCsvField(labelNames),
+      escapeCsvField(subtaskTitles),
+      escapeCsvField(subtaskDeadlines),
+      escapeCsvField(subtaskAssignees),
       ...allCustomFields.map((cf) => escapeCsvField(customFieldValuesMap.get(cf.id) || "")),
     ];
 
