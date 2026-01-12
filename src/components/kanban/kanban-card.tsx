@@ -129,6 +129,7 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
             <div className="flex items-center gap-2 flex-wrap">
               {task.priority && (
                 <span
+                  suppressHydrationWarning
                   className={cn(
                     "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium border",
                     priorityColors[task.priority]
@@ -140,6 +141,7 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
 
               {task.due_date && !task.completed && (
                 <span
+                  suppressHydrationWarning
                   className={cn(
                     "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs",
                     isOverdue
