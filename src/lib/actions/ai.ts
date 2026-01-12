@@ -966,8 +966,8 @@ async function findSimilarTasks(
       avg_days_to_deadline: guidelines.deadline_rules?.avg_days_to_deadline 
         ? Math.round(guidelines.deadline_rules.avg_days_to_deadline)
         : null,
-      common_priorities,
-      common_labels,
+      common_priorities: commonPriorities,
+      common_labels: commonLabels,
       custom_field_patterns: customFieldPatterns,
       count: guidelines.metadata?.total_tasks_analyzed || 0,
     };
