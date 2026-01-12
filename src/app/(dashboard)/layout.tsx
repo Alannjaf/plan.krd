@@ -9,6 +9,7 @@ import { SearchButton } from "@/components/search/search-button";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { LanguageSwitcher } from "@/components/i18n/language-switcher";
 import { OfflineBanner } from "@/components/offline/offline-banner";
+import { ChatWidget } from "@/components/ai/chat-widget";
 
 export default async function DashboardLayout({
   children,
@@ -57,6 +58,9 @@ export default async function DashboardLayout({
 
       {/* Main Content */}
       <main>{children}</main>
+
+      {/* AI Chat Widget */}
+      <ChatWidget />
     </div>
   );
 }

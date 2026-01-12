@@ -94,77 +94,93 @@ export async function createComment(
     return { success: false, error: error.message };
   }
 
-  // Log activity
-  await logActivity(taskId, "comment_added", {});
+  // Log activity (non-blocking)
+  logActivity(taskId, "comment_added", {}).catch((err) => {
+    console.error("Error logging activity:", err);
+  });
 
-  // Create notifications for mentions
+  // Process mentions asynchronously (don't block comment creation)
   const mentions = extractMentions(content);
   if (mentions.length > 0) {
-    // Get task details for notification
-    const { data: task } = await supabase
-      .from("tasks")
-      .select("title, lists(boards(id, workspace_id))")
-      .eq("id", taskId)
-      .single();
+    // Process mentions in background - don't await
+    (async () => {
+      try {
+        // Get task details for notification
+        const { data: task } = await supabase
+          .from("tasks")
+          .select("title, lists(boards(id, workspace_id))")
+          .eq("id", taskId)
+          .single();
 
-    if (task) {
-      // Handle lists - Supabase may return as array or single object
-      const listsData = task.lists as unknown;
-      let board: { id: string; workspace_id: string } | undefined;
-      
-      if (Array.isArray(listsData)) {
-        const firstList = listsData[0] as { boards: { id: string; workspace_id: string } } | undefined;
-        board = firstList?.boards;
-      } else if (listsData && typeof listsData === 'object') {
-        const listObj = listsData as { boards: { id: string; workspace_id: string } | { id: string; workspace_id: string }[] };
-        board = Array.isArray(listObj.boards) ? listObj.boards[0] : listObj.boards;
-      }
+        if (!task) return;
 
-      // Look up mentioned users by email or full_name
-      // Query each mention separately and combine results to avoid query syntax issues
-      const allProfiles = new Map<string, { id: string; email: string | null; full_name: string | null }>();
-      
-      for (const mention of mentions) {
-        // Escape special characters for ilike (%, _)
-        const escapedMention = mention.replace(/%/g, "\\%").replace(/_/g, "\\_");
+        // Handle lists - Supabase may return as array or single object
+        const listsData = task.lists as unknown;
+        let board: { id: string; workspace_id: string } | undefined;
         
-        // Query for exact or partial match on email or full_name
+        if (Array.isArray(listsData)) {
+          const firstList = listsData[0] as { boards: { id: string; workspace_id: string } } | undefined;
+          board = firstList?.boards;
+        } else if (listsData && typeof listsData === 'object') {
+          const listObj = listsData as { boards: { id: string; workspace_id: string } | { id: string; workspace_id: string }[] };
+          board = Array.isArray(listObj.boards) ? listObj.boards[0] : listObj.boards;
+        }
+
+        // Batch profile queries - build OR conditions for all mentions
+        const escapedMentions = mentions.map(m => m.replace(/%/g, "\\%").replace(/_/g, "\\_"));
+        const orConditions = escapedMentions.flatMap(m => [
+          `email.ilike.%${m}%`,
+          `full_name.ilike.%${m}%`
+        ]).join(",");
+
+        // Single query for all mentions
         const { data: profiles } = await supabase
           .from("profiles")
           .select("id, email, full_name")
-          .or(`email.ilike.%${escapedMention}%,full_name.ilike.%${escapedMention}%`);
+          .or(orConditions);
 
-        if (profiles) {
-          profiles.forEach((profile) => {
-            // Check if the mention matches exactly (case-insensitive)
+        if (!profiles || profiles.length === 0) return;
+
+        // Match profiles to mentions
+        const allProfiles = new Map<string, { id: string; email: string | null; full_name: string | null }>();
+        
+        for (const profile of profiles) {
+          // Check if profile matches any mention
+          const matchesMention = mentions.some(mention => {
             const emailMatch = profile.email?.toLowerCase() === mention.toLowerCase() ||
               profile.email?.toLowerCase().includes(mention.toLowerCase());
             const nameMatch = profile.full_name?.toLowerCase() === mention.toLowerCase() ||
               profile.full_name?.toLowerCase().includes(mention.toLowerCase());
-            
-            if (emailMatch || nameMatch) {
-              allProfiles.set(profile.id, profile);
-            }
+            return emailMatch || nameMatch;
           });
+          
+          if (matchesMention) {
+            allProfiles.set(profile.id, profile);
+          }
         }
-      }
 
-      // Create notifications for all matched profiles
-      for (const profile of allProfiles.values()) {
-        if (profile.id !== user.id) {
-          await createNotification({
-            userId: profile.id,
-            type: "mention",
-            title: "You were mentioned in a comment",
-            message: content.slice(0, 100) + (content.length > 100 ? "..." : ""),
-            taskId,
-            workspaceId: board?.workspace_id,
-            boardId: board?.id,
-            actorId: user.id,
-          });
-        }
+        // Create notifications in parallel
+        const notificationPromises = Array.from(allProfiles.values())
+          .filter(profile => profile.id !== user.id)
+          .map(profile =>
+            createNotification({
+              userId: profile.id,
+              type: "mention",
+              title: "You were mentioned in a comment",
+              message: content.slice(0, 100) + (content.length > 100 ? "..." : ""),
+              taskId,
+              workspaceId: board?.workspace_id,
+              boardId: board?.id,
+              actorId: user.id,
+            })
+          );
+
+        await Promise.all(notificationPromises);
+      } catch (error) {
+        console.error("Error processing mentions:", error);
+        // Don't throw - mentions are non-critical
       }
-    }
+    })();
   }
 
   return { success: true, comment: data };

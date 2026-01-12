@@ -9,6 +9,7 @@ import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { useUpdateTask } from "@/lib/query/mutations/tasks";
 import { AlignLeft, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SummaryButton } from "@/components/ai/summary-button";
 
 interface TaskDescriptionProps {
   task: TaskWithRelations;
@@ -69,9 +70,14 @@ export function TaskDescription({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-        <AlignLeft className="h-4 w-4" />
-        Description
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <AlignLeft className="h-4 w-4" />
+          Description
+        </div>
+        {task.description && (
+          <SummaryButton content={task.description} minLength={300} />
+        )}
       </div>
 
       {isEditing ? (

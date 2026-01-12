@@ -63,7 +63,23 @@ export function useCreateComment() {
       }
     },
     onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.comments(variables.taskId) });
+      // Replace optimistic comment with real comment from server
+      queryClient.setQueryData<Comment[]>(queryKeys.comments(variables.taskId), (old) => {
+        if (!old) return [data];
+        
+        // Find and replace the optimistic comment (temp-*) with the real one
+        const hasOptimistic = old.some(c => c.id.startsWith("temp-"));
+        if (hasOptimistic) {
+          // Remove optimistic comment and add real one
+          const filtered = old.filter(c => !c.id.startsWith("temp-"));
+          return [data, ...filtered];
+        }
+        
+        // If no optimistic comment found, just add the new one
+        return [data, ...old];
+      });
+      
+      // Note: Realtime subscriptions handle live updates, no need to invalidate
     },
   });
 }
@@ -72,16 +88,45 @@ export function useUpdateComment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ commentId, content }: { commentId: string; content: string }) => {
+    mutationFn: async ({ commentId, content, taskId }: { commentId: string; content: string; taskId: string }) => {
       const result = await updateComment(commentId, content);
       if (!result.success) {
         throw new Error(result.error || "Failed to update comment");
       }
-      return result;
+      return { commentId, content };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["comments"] });
+    onMutate: async ({ commentId, content, taskId }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.comments(taskId) });
+      
+      const previousComments = queryClient.getQueryData<Comment[]>(queryKeys.comments(taskId));
+      
+      // Optimistically update the comment
+      queryClient.setQueryData<Comment[]>(queryKeys.comments(taskId), (old) => {
+        if (!old) return old;
+        
+        const updateCommentInTree = (comments: Comment[]): Comment[] => {
+          return comments.map((comment) => {
+            if (comment.id === commentId) {
+              return { ...comment, content, updated_at: new Date().toISOString() };
+            }
+            if (comment.replies && comment.replies.length > 0) {
+              return { ...comment, replies: updateCommentInTree(comment.replies) };
+            }
+            return comment;
+          });
+        };
+        
+        return updateCommentInTree(old);
+      });
+      
+      return { previousComments };
     },
+    onError: (err, variables, context) => {
+      if (context?.previousComments) {
+        queryClient.setQueryData(queryKeys.comments(variables.taskId), context.previousComments);
+      }
+    },
+    // Note: Realtime subscriptions handle live updates, no need to invalidate
   });
 }
 
@@ -89,15 +134,43 @@ export function useDeleteComment() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (commentId: string) => {
+    mutationFn: async ({ commentId, taskId }: { commentId: string; taskId: string }) => {
       const result = await deleteComment(commentId);
       if (!result.success) {
         throw new Error(result.error || "Failed to delete comment");
       }
-      return result;
+      return { commentId };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["comments"] });
+    onMutate: async ({ commentId, taskId }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.comments(taskId) });
+      
+      const previousComments = queryClient.getQueryData<Comment[]>(queryKeys.comments(taskId));
+      
+      // Optimistically remove the comment
+      queryClient.setQueryData<Comment[]>(queryKeys.comments(taskId), (old) => {
+        if (!old) return old;
+        
+        const removeCommentFromTree = (comments: Comment[]): Comment[] => {
+          return comments
+            .filter((comment) => comment.id !== commentId)
+            .map((comment) => {
+              if (comment.replies && comment.replies.length > 0) {
+                return { ...comment, replies: removeCommentFromTree(comment.replies) };
+              }
+              return comment;
+            });
+        };
+        
+        return removeCommentFromTree(old);
+      });
+      
+      return { previousComments };
     },
+    onError: (err, variables, context) => {
+      if (context?.previousComments) {
+        queryClient.setQueryData(queryKeys.comments(variables.taskId), context.previousComments);
+      }
+    },
+    // Note: Realtime subscriptions handle live updates, no need to invalidate
   });
 }

@@ -34,8 +34,10 @@ import {
   X,
   Eye,
   ExternalLink,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DocumentChat } from "@/components/ai/document-chat";
 
 interface AttachmentListProps {
   task: TaskWithRelations;
@@ -50,6 +52,7 @@ export function AttachmentList({ task, onChanged }: AttachmentListProps) {
   const [currentFileName, setCurrentFileName] = useState<string>("");
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [chatAttachment, setChatAttachment] = useState<Attachment | null>(null);
 
   // Client-side upload with progress simulation
   const uploadFileWithProgress = async (
@@ -325,9 +328,19 @@ export function AttachmentList({ task, onChanged }: AttachmentListProps) {
               onDelete={handleDelete}
               onDownload={handleDownload}
               onPreview={handlePreview}
+              onChat={isPdfFile(attachment.file_type) ? setChatAttachment : undefined}
             />
           ))}
         </div>
+      )}
+
+      {/* Document Chat Dialog */}
+      {chatAttachment && (
+        <DocumentChat
+          attachment={chatAttachment}
+          open={!!chatAttachment}
+          onOpenChange={(open) => !open && setChatAttachment(null)}
+        />
       )}
     </div>
   );
@@ -338,9 +351,10 @@ interface AttachmentCardProps {
   onDelete: (attachment: Attachment) => void;
   onDownload: (attachment: Attachment) => void;
   onPreview: (attachment: Attachment) => void;
+  onChat?: (attachment: Attachment) => void;
 }
 
-function AttachmentCard({ attachment, onDelete, onDownload, onPreview }: AttachmentCardProps) {
+function AttachmentCard({ attachment, onDelete, onDownload, onPreview, onChat }: AttachmentCardProps) {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [isLoadingThumbnail, setIsLoadingThumbnail] = useState(false);
 
@@ -399,6 +413,20 @@ function AttachmentCard({ attachment, onDelete, onDownload, onPreview }: Attachm
       </div>
 
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {onChat && (
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-6 w-6"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChat(attachment);
+            }}
+            title="Chat with document"
+          >
+            <MessageSquare className="h-3 w-3" />
+          </Button>
+        )}
         <Button
           variant="secondary"
           size="icon"

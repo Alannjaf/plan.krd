@@ -5,14 +5,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { createComment } from "@/lib/actions/comments";
 import { useComments } from "@/lib/query/queries/comments";
 import { useWorkspaceMembers } from "@/lib/query/queries/members";
-import { useQueryClient } from "@tanstack/react-query";
-import { queryKeys as commentQueryKeys } from "@/lib/query/queries/comments";
+import { useCreateComment } from "@/lib/query/mutations/comments";
 import { CommentItem } from "./comment-item";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Send, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SummaryButton } from "@/components/ai/summary-button";
 
 interface CommentSectionProps {
   taskId: string;
@@ -38,13 +37,12 @@ export function CommentSection({
   workspaceId,
   readOnly = false,
 }: CommentSectionProps) {
-  const queryClient = useQueryClient();
   const { data: comments = [], isLoading: commentsLoading } = useComments(taskId);
   const { data: membersData = [] } = useWorkspaceMembers(workspaceId);
   const members = membersData as unknown as Member[];
+  const createCommentMutation = useCreateComment();
   
   const [newComment, setNewComment] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionSearch, setMentionSearch] = useState("");
@@ -113,37 +111,24 @@ export function CommentSection({
 
   const handleSubmit = async () => {
     if (!newComment.trim()) return;
-    setIsSubmitting(true);
     
     const commentContent = newComment.trim();
-    
-    // Optimistic update - add comment immediately
-    const optimisticComment = {
-      id: `temp-${Date.now()}`,
-      task_id: taskId,
-      content: commentContent,
-      created_at: new Date().toISOString(),
-      parent_id: null,
-      profiles: { full_name: "You", email: null, avatar_url: null },
-      replies: [],
-    };
-    
-    queryClient.setQueryData(commentQueryKeys.comments(taskId), (old: unknown) => {
-      const oldComments = old as typeof comments;
-      return oldComments ? [optimisticComment, ...oldComments] : [optimisticComment];
-    });
-    
     setNewComment("");
     
-    const result = await createComment(taskId, commentContent);
-    // Always refresh to get the real comment with proper data
-    queryClient.invalidateQueries({ queryKey: commentQueryKeys.comments(taskId) });
-    
-    setIsSubmitting(false);
+    try {
+      await createCommentMutation.mutateAsync({
+        taskId,
+        content: commentContent,
+      });
+    } catch (error) {
+      // Error is handled by React Query
+      // Restore comment on error
+      setNewComment(commentContent);
+    }
   };
 
   const handleCommentUpdate = () => {
-    queryClient.invalidateQueries({ queryKey: commentQueryKeys.comments(taskId) });
+    // Realtime subscriptions handle updates, no need to invalidate
   };
 
   if (commentsLoading) {
@@ -233,9 +218,9 @@ export function CommentSection({
               <Button
                 size="sm"
                 onClick={handleSubmit}
-                disabled={isSubmitting || !newComment.trim()}
+                disabled={createCommentMutation.isPending || !newComment.trim()}
               >
-                {isSubmitting ? (
+                {createCommentMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (
                   <Send className="h-4 w-4 mr-1" />
@@ -253,18 +238,33 @@ export function CommentSection({
           No comments yet. Be the first to comment!
         </p>
       ) : (
-        <ScrollArea className="h-[500px]">
-          <div className="space-y-4 pr-4 pb-4">
-            {comments.map((comment) => (
-              <CommentItem
-                key={comment.id}
-                comment={comment}
-                taskId={taskId}
-                onUpdate={handleCommentUpdate}
+        <>
+          {/* Comments Header with Summary */}
+          {comments.length >= 3 && (
+            <div className="flex items-center justify-between mb-2 shrink-0">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <MessageSquare className="h-4 w-4" />
+                <span>{comments.length} comments</span>
+              </div>
+              <SummaryButton
+                content={comments.map((c) => `${c.profiles?.full_name || 'User'}: ${c.content}`).join('\n\n')}
+                minLength={300}
               />
-            ))}
-          </div>
-        </ScrollArea>
+            </div>
+          )}
+          <ScrollArea className="h-[500px]">
+            <div className="space-y-4 pr-4 pb-4">
+              {comments.map((comment) => (
+                <CommentItem
+                  key={comment.id}
+                  comment={comment}
+                  taskId={taskId}
+                  onUpdate={handleCommentUpdate}
+                />
+              ))}
+            </div>
+          </ScrollArea>
+        </>
       )}
     </div>
   );

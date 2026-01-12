@@ -13,19 +13,18 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  createSubtask,
-  updateSubtask,
-  deleteSubtask,
-  toggleSubtask,
-} from "@/lib/actions/subtasks";
 import { useWorkspaceMembers } from "@/lib/query/queries/members";
-import { useQueryClient } from "@tanstack/react-query";
-import { queryKeys as taskQueryKeys } from "@/lib/query/queries/tasks";
+import {
+  useCreateSubtask,
+  useUpdateSubtask,
+  useDeleteSubtask,
+  useToggleSubtask,
+} from "@/lib/query/mutations/subtasks";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { format, isPast, isToday } from "date-fns";
 import { CheckSquare, Plus, Trash2, GripVertical, CalendarIcon, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TaskDecomposer } from "@/components/ai/task-decomposer";
 
 interface SubtaskListProps {
   task: TaskWithRelations;
@@ -62,21 +61,20 @@ type SubtaskItem = {
 };
 
 export function SubtaskList({ task, workspaceId, onChanged, readOnly = false }: SubtaskListProps) {
-  const queryClient = useQueryClient();
   const [newSubtask, setNewSubtask] = useState("");
-  const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
   
   const { data: membersData = [] } = useWorkspaceMembers(workspaceId);
   const members = membersData as unknown as WorkspaceMember[];
+  
+  const createSubtaskMutation = useCreateSubtask();
+  const updateSubtaskMutation = useUpdateSubtask();
+  const deleteSubtaskMutation = useDeleteSubtask();
+  const toggleSubtaskMutation = useToggleSubtask();
 
   const subtasks = task.subtasks || [];
-
-  const invalidateTask = () => {
-    queryClient.invalidateQueries({ queryKey: taskQueryKeys.task(task.id) });
-  };
 
   const getInitials = (name: string | null, email: string | null) => {
     if (name) {
@@ -90,15 +88,18 @@ export function SubtaskList({ task, workspaceId, onChanged, readOnly = false }: 
 
   const handleAddSubtask = async () => {
     if (!newSubtask.trim() || readOnly) return;
-    setIsAdding(true);
 
-    const result = await createSubtask(task.id, newSubtask.trim());
-    if (result.success) {
-      invalidateTask();
-      onChanged();
-    }
+    const title = newSubtask.trim();
     setNewSubtask("");
-    setIsAdding(false);
+
+    try {
+      await createSubtaskMutation.mutateAsync({ taskId: task.id, title });
+      onChanged();
+    } catch (error) {
+      // Error is handled by React Query
+      // Restore subtask on error
+      setNewSubtask(title);
+    }
   };
 
   const handleToggle = async (subtask: SubtaskItem) => {
@@ -106,50 +107,67 @@ export function SubtaskList({ task, workspaceId, onChanged, readOnly = false }: 
     const newCompleted = !subtask.completed;
     
     setProcessingIds((prev) => new Set(prev).add(subtask.id));
-    const result = await toggleSubtask(subtask.id, newCompleted);
-    if (result.success) {
-      invalidateTask();
+    
+    try {
+      await toggleSubtaskMutation.mutateAsync({
+        subtaskId: subtask.id,
+        completed: newCompleted,
+        taskId: task.id,
+      });
       onChanged();
+    } catch (error) {
+      // Error is handled by React Query
+    } finally {
+      setProcessingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(subtask.id);
+        return next;
+      });
     }
-    setProcessingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(subtask.id);
-      return next;
-    });
   };
 
   const handleDelete = async (subtask: SubtaskItem) => {
     if (readOnly) return;
     setProcessingIds((prev) => new Set(prev).add(subtask.id));
     
-    const result = await deleteSubtask(subtask.id);
-    if (result.success) {
-      invalidateTask();
+    try {
+      await deleteSubtaskMutation.mutateAsync({ subtaskId: subtask.id, taskId: task.id });
       onChanged();
+    } catch (error) {
+      // Error is handled by React Query
+    } finally {
+      setProcessingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(subtask.id);
+        return next;
+      });
     }
-    setProcessingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(subtask.id);
-      return next;
-    });
   };
 
   const handleSaveEdit = async (subtaskId: string) => {
     if (!editingTitle.trim() || readOnly) return;
 
+    const title = editingTitle.trim();
     setProcessingIds((prev) => new Set(prev).add(subtaskId));
-    const result = await updateSubtask(subtaskId, { title: editingTitle.trim() });
-    if (result.success) {
-      invalidateTask();
+    
+    try {
+      await updateSubtaskMutation.mutateAsync({
+        subtaskId,
+        updates: { title },
+        taskId: task.id,
+      });
+      setEditingId(null);
+      setEditingTitle("");
       onChanged();
+    } catch (error) {
+      // Error is handled by React Query
+    } finally {
+      setProcessingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(subtaskId);
+        return next;
+      });
     }
-    setProcessingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(subtaskId);
-      return next;
-    });
-    setEditingId(null);
-    setEditingTitle("");
   };
 
   const handleDueDateChange = async (subtask: SubtaskItem, date: Date | undefined) => {
@@ -157,33 +175,56 @@ export function SubtaskList({ task, workspaceId, onChanged, readOnly = false }: 
     const newDate = date ? format(date, "yyyy-MM-dd") : null;
 
     setProcessingIds((prev) => new Set(prev).add(subtask.id));
-    const result = await updateSubtask(subtask.id, { due_date: newDate });
-    if (result.success) {
-      invalidateTask();
+    
+    try {
+      await updateSubtaskMutation.mutateAsync({
+        subtaskId: subtask.id,
+        updates: { due_date: newDate },
+        taskId: task.id,
+      });
       onChanged();
+    } catch (error) {
+      // Error is handled by React Query
+    } finally {
+      setProcessingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(subtask.id);
+        return next;
+      });
     }
-    setProcessingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(subtask.id);
-      return next;
-    });
   };
 
   const handleAssigneeChange = async (subtask: SubtaskItem, member: WorkspaceMember | null) => {
     if (readOnly) return;
     const newAssigneeId = member?.user_id || null;
+    const assigneeProfile = member?.profiles
+      ? {
+          id: member.profiles.id,
+          email: member.profiles.email,
+          full_name: member.profiles.full_name,
+          avatar_url: member.profiles.avatar_url,
+        }
+      : null;
 
     setProcessingIds((prev) => new Set(prev).add(subtask.id));
-    const result = await updateSubtask(subtask.id, { assignee_id: newAssigneeId });
-    if (result.success) {
-      invalidateTask();
+    
+    try {
+      await updateSubtaskMutation.mutateAsync({
+        subtaskId: subtask.id,
+        updates: { assignee_id: newAssigneeId },
+        taskId: task.id,
+        assignee: assigneeProfile,
+      });
       onChanged();
+    } catch (error) {
+      // Error is handled by React Query
+    } finally {
+      setProcessingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(subtask.id);
+        return next;
+      });
     }
-    setProcessingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(subtask.id);
-      return next;
-    });
   };
 
   return (
@@ -198,6 +239,12 @@ export function SubtaskList({ task, workspaceId, onChanged, readOnly = false }: 
             </span>
           )}
         </div>
+        {!readOnly && (
+          <TaskDecomposer
+            taskId={task.id}
+            onSubtasksCreated={onChanged}
+          />
+        )}
       </div>
 
       {subtasks.length > 0 && <Progress value={progress} className="h-1.5" />}
@@ -404,7 +451,7 @@ export function SubtaskList({ task, workspaceId, onChanged, readOnly = false }: 
             size="sm"
             variant="secondary"
             onClick={handleAddSubtask}
-            disabled={isAdding || !newSubtask.trim()}
+            disabled={createSubtaskMutation.isPending || !newSubtask.trim()}
           >
             <Plus className="h-4 w-4" />
           </Button>

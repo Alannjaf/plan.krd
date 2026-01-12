@@ -39,6 +39,10 @@ import { useDeleteTask, useArchiveTask, useUnarchiveTask } from "@/lib/query/mut
 import { useRealtimeComments } from "@/lib/hooks/use-realtime-comments";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
 import { Loader2, MessageSquare, History, Paperclip, Trash2, Archive, ArchiveRestore } from "lucide-react";
+import { AutoTagSuggestions } from "@/components/ai/auto-tag-suggestions";
+import { useLabels } from "@/lib/query/queries/labels";
+import { useUpdateTask } from "@/lib/query/mutations/tasks";
+import { addLabelToTask } from "@/lib/actions/labels";
 
 interface TaskDetailModalProps {
   taskId: string | null;
@@ -63,6 +67,8 @@ export function TaskDetailModal({
   const deleteTaskMutation = useDeleteTask();
   const archiveTaskMutation = useArchiveTask();
   const unarchiveTaskMutation = useUnarchiveTask();
+  const updateTaskMutation = useUpdateTask();
+  const { data: boardLabels = [] } = useLabels(boardId);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("comments");
   const hasChanges = useRef(false);
@@ -260,6 +266,38 @@ export function TaskDetailModal({
                         onChanged={markChanged}
                         readOnly={readOnly}
                       />
+
+                      {/* AI Suggestions */}
+                      {!readOnly && (
+                        <div className="space-y-2">
+                          <div className="text-sm font-medium text-muted-foreground">
+                            AI Assist
+                          </div>
+                          <AutoTagSuggestions
+                            title={task.title}
+                            description={task.description}
+                            boardId={boardId}
+                            currentPriority={task.priority}
+                            currentLabels={task.labels?.map((l) => l.labels?.name || "") || []}
+                            onApplyPriority={(priority) => {
+                              markChanged();
+                              updateTaskMutation.mutate({
+                                taskId: task.id,
+                                updates: { priority },
+                              });
+                            }}
+                            onApplyLabel={async (labelName) => {
+                              const label = boardLabels.find(
+                                (l) => l.name.toLowerCase() === labelName.toLowerCase()
+                              );
+                              if (label) {
+                                markChanged();
+                                await addLabelToTask(task.id, label.id);
+                              }
+                            }}
+                          />
+                        </div>
+                      )}
 
                       {/* Actions */}
                       {!readOnly && (

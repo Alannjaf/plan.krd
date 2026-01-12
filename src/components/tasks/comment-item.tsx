@@ -10,12 +10,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  updateComment,
-  deleteComment,
-  createComment,
-  type Comment,
-} from "@/lib/actions/comments";
+import { type Comment } from "@/lib/actions/comments";
+import { useUpdateComment, useDeleteComment, useCreateComment } from "@/lib/query/mutations/comments";
 import { formatDistanceToNow } from "date-fns";
 import { MoreHorizontal, Pencil, Trash2, Reply, Loader2 } from "lucide-react";
 
@@ -36,7 +32,10 @@ export function CommentItem({
   const [editContent, setEditContent] = useState(comment.content);
   const [isReplying, setIsReplying] = useState(false);
   const [replyContent, setReplyContent] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
+  
+  const updateCommentMutation = useUpdateComment();
+  const deleteCommentMutation = useDeleteComment();
+  const createCommentMutation = useCreateComment();
 
   const getInitials = (name: string | null, email: string | null) => {
     if (name) {
@@ -52,26 +51,52 @@ export function CommentItem({
 
   const handleSaveEdit = async () => {
     if (!editContent.trim()) return;
-    setIsSaving(true);
-    await updateComment(comment.id, editContent.trim());
-    setIsEditing(false);
-    onUpdate();
-    setIsSaving(false);
+    
+    try {
+      await updateCommentMutation.mutateAsync({
+        commentId: comment.id,
+        content: editContent.trim(),
+        taskId,
+      });
+      setIsEditing(false);
+      onUpdate();
+    } catch (error) {
+      // Error is handled by React Query
+    }
   };
 
   const handleDelete = async () => {
-    await deleteComment(comment.id);
-    onUpdate();
+    try {
+      await deleteCommentMutation.mutateAsync({
+        commentId: comment.id,
+        taskId,
+      });
+      onUpdate();
+    } catch (error) {
+      // Error is handled by React Query
+    }
   };
 
   const handleReply = async () => {
     if (!replyContent.trim()) return;
-    setIsSaving(true);
-    await createComment(taskId, replyContent.trim(), comment.id);
+    
+    const content = replyContent.trim();
     setReplyContent("");
     setIsReplying(false);
-    onUpdate();
-    setIsSaving(false);
+    
+    try {
+      await createCommentMutation.mutateAsync({
+        taskId,
+        content,
+        parentId: comment.id,
+      });
+      onUpdate();
+    } catch (error) {
+      // Error is handled by React Query
+      // Restore reply on error
+      setReplyContent(content);
+      setIsReplying(true);
+    }
   };
 
   const userName =
@@ -112,8 +137,8 @@ export function CommentItem({
                 className="min-h-[60px] resize-none"
               />
               <div className="flex gap-2">
-                <Button size="sm" onClick={handleSaveEdit} disabled={isSaving}>
-                  {isSaving ? "Saving..." : "Save"}
+                <Button size="sm" onClick={handleSaveEdit} disabled={updateCommentMutation.isPending}>
+                  {updateCommentMutation.isPending ? "Saving..." : "Save"}
                 </Button>
                 <Button
                   size="sm"
@@ -177,8 +202,8 @@ export function CommentItem({
                 autoFocus
               />
               <div className="flex gap-2">
-                <Button size="sm" onClick={handleReply} disabled={isSaving}>
-                  {isSaving ? (
+                <Button size="sm" onClick={handleReply} disabled={createCommentMutation.isPending}>
+                  {createCommentMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-1" />
                   ) : null}
                   Reply
