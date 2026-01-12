@@ -54,6 +54,46 @@ type SimilarTaskPattern = {
   count: number; // Number of similar tasks found
 };
 
+export type AssigneeRule = {
+  frequency: number; // 0.0 to 1.0
+  common_keywords: string[];
+  last_assigned: string;
+  task_count: number;
+};
+
+export type DeadlineRules = {
+  avg_days_to_deadline: number | null;
+  priority_deadlines: Record<string, number>;
+};
+
+export type PriorityRules = {
+  keyword_patterns: Record<string, string[]>;
+  label_priorities: Record<string, string>;
+};
+
+export type LabelRules = {
+  common_labels: string[];
+  keyword_labels: Record<string, string>;
+};
+
+export type CustomFieldRule = {
+  common_values: string[];
+  frequencies: number[];
+};
+
+export type BoardGuidelines = {
+  assignee_rules: Record<string, AssigneeRule>;
+  deadline_rules: DeadlineRules;
+  priority_rules: PriorityRules;
+  label_rules: LabelRules;
+  custom_field_rules: Record<string, CustomFieldRule>;
+  metadata: {
+    last_updated: string;
+    total_tasks_analyzed: number;
+    version: number;
+  };
+};
+
 /**
  * Translate database/technical errors into user-friendly messages
  */
@@ -714,7 +754,13 @@ export async function decomposeTask(
     }
   }
 
+  // Try to get guidelines first (fast path)
+  const { getBoardGuidelines } = await import("./guidelines");
+  const guidelinesResult = boardId ? await getBoardGuidelines(boardId) : { success: false };
+  const guidelines = guidelinesResult.success ? guidelinesResult.guidelines : undefined;
+
   // Find similar tasks to get assignee patterns
+  // Use guidelines if available, otherwise fallback to database query
   let similarTaskPatterns: SimilarTaskPattern | undefined;
   if (boardId) {
     similarTaskPatterns = await findSimilarTasks(
@@ -722,7 +768,8 @@ export async function decomposeTask(
       task.description,
       boardId,
       task.list_id,
-      undefined
+      undefined,
+      guidelines
     );
   }
 
@@ -872,14 +919,59 @@ export async function rewriteContent(
 /**
  * Find similar tasks using hybrid matching (labels + list + keywords)
  * Returns aggregated patterns from similar tasks (0 AI tokens - pure SQL)
+ * If guidelines are provided, uses them instead of querying the database
  */
 async function findSimilarTasks(
   title: string,
   description: string | null,
   boardId: string,
   listId?: string,
-  currentLabelIds?: string[]
+  currentLabelIds?: string[],
+  guidelines?: BoardGuidelines
 ): Promise<SimilarTaskPattern> {
+  // If guidelines are provided, convert them to SimilarTaskPattern format
+  if (guidelines) {
+    // Extract top assignees by frequency
+    const assigneeEntries = Object.entries(guidelines.assignee_rules || {})
+      .sort((a, b) => b[1].frequency - a[1].frequency)
+      .slice(0, 3)
+      .map(([userId]) => userId);
+
+    // Convert label priorities to common priorities frequency map
+    // Since we don't have direct priority frequency, we'll create a simplified map
+    // based on label priorities (if a label is associated with a priority, count it)
+    const commonPriorities: Record<string, number> = {};
+    if (guidelines.priority_rules?.label_priorities) {
+      for (const [labelId, priority] of Object.entries(guidelines.priority_rules.label_priorities)) {
+        if (priority && typeof priority === 'string') {
+          commonPriorities[priority] = (commonPriorities[priority] || 0) + 1;
+        }
+      }
+    }
+
+    // Extract common labels (convert from IDs to names if needed, but for now use IDs)
+    const commonLabels = (guidelines.label_rules?.common_labels || []).slice(0, 5);
+
+    // Convert custom field rules to patterns format
+    const customFieldPatterns: Record<string, { value: string; frequency: number }[]> = {};
+    for (const [fieldId, rule] of Object.entries(guidelines.custom_field_rules || {})) {
+      customFieldPatterns[fieldId] = (rule.common_values || []).map((value, idx) => ({
+        value,
+        frequency: Math.round((rule.frequencies?.[idx] || 0) * 100), // Convert to percentage
+      }));
+    }
+
+    return {
+      assignee_ids: assigneeEntries,
+      avg_days_to_deadline: guidelines.deadline_rules?.avg_days_to_deadline 
+        ? Math.round(guidelines.deadline_rules.avg_days_to_deadline)
+        : null,
+      common_priorities,
+      common_labels,
+      custom_field_patterns: customFieldPatterns,
+      count: guidelines.metadata?.total_tasks_analyzed || 0,
+    };
+  }
   const supabase = await createClient();
 
   // Get all lists for this board
@@ -1154,8 +1246,14 @@ export async function suggestTagsAndPriority(
     .eq("board_id", boardId)
     .order("position");
 
+  // Try to get guidelines first (fast path)
+  const { getBoardGuidelines } = await import("./guidelines");
+  const guidelinesResult = await getBoardGuidelines(boardId);
+  const guidelines = guidelinesResult.success ? guidelinesResult.guidelines : undefined;
+
   // Find similar tasks and aggregate patterns (0 AI tokens - pure SQL)
-  const patterns = await findSimilarTasks(title, description, boardId, listId, currentLabelIds);
+  // Use guidelines if available, otherwise fallback to database query
+  const patterns = await findSimilarTasks(title, description, boardId, listId, currentLabelIds, guidelines);
 
   // Build compact prompt with aggregated patterns
   const userPrompt = buildAutoTagPrompt(
