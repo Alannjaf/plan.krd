@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { decomposeTask, type DecomposedSubtask } from "@/lib/actions/ai";
-import { createSubtask } from "@/lib/actions/subtasks";
+import { useCreateSubtask } from "@/lib/query/mutations/subtasks";
 import { Sparkles, Loader2, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +33,8 @@ export function TaskDecomposer({
   const [error, setError] = useState<string | null>(null);
   const [subtasks, setSubtasks] = useState<DecomposedSubtask[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  
+  const createSubtaskMutation = useCreateSubtask();
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -87,9 +89,9 @@ export function TaskDecomposer({
     try {
       const selectedSubtasks = subtasks.filter((_, i) => selectedIds.has(i));
 
-      // Create subtasks sequentially to maintain order
+      // Create subtasks sequentially to maintain order using React Query mutation
       for (const subtask of selectedSubtasks) {
-        await createSubtask(taskId, subtask.title);
+        await createSubtaskMutation.mutateAsync({ taskId, title: subtask.title });
       }
 
       onSubtasksCreated();

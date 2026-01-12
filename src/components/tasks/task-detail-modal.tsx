@@ -129,7 +129,7 @@ export function TaskDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-6xl w-[95vw] h-[85vh] p-0 gap-0 overflow-hidden">
+      <DialogContent className="sm:max-w-6xl w-[95vw] h-[85vh] p-0 gap-0 overflow-hidden flex flex-col">
         <VisuallyHidden>
           <DialogTitle>{task?.title || "Task Details"}</DialogTitle>
           <DialogDescription>
@@ -137,11 +137,11 @@ export function TaskDetailModal({
           </DialogDescription>
         </VisuallyHidden>
         {initialLoading ? (
-          <div className="flex items-center justify-center h-full">
+          <div className="flex items-center justify-center flex-1">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         ) : task ? (
-          <div className="flex flex-col h-full">
+          <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
             <DialogHeader className="p-6 pb-0 shrink-0">
               <TaskHeader
                 task={task}
@@ -150,10 +150,9 @@ export function TaskDetailModal({
               />
             </DialogHeader>
 
-            <div className="flex-1 overflow-hidden">
-              <div className="flex h-full">
+            <div className="flex-1 min-h-0 flex overflow-hidden">
                 {/* Main Content */}
-                <div className="flex-1 min-w-0 border-r border-border/50">
+                <div className="flex-1 min-w-0 border-r border-border/50 overflow-hidden">
                   <ScrollArea className="h-full">
                     <div className="p-6 space-y-6">
                       {/* Description */}
@@ -225,9 +224,9 @@ export function TaskDetailModal({
                 </div>
 
                 {/* Sidebar */}
-                <div className="w-80 shrink-0 bg-secondary/20">
-                  <ScrollArea className="h-full">
-                    <div className="p-4 space-y-5">
+                <div className="w-80 shrink-0 bg-secondary/20 relative">
+                  <div className="absolute inset-0 overflow-y-auto">
+                    <div className="p-4 pb-8 space-y-5">
                       {/* Assignees */}
                       <TaskAssignees
                         task={task}
@@ -331,16 +330,15 @@ export function TaskDetailModal({
                               Delete Task
                             </Button>
                           </div>
-                        </>
+                          </>
                       )}
                     </div>
-                  </ScrollArea>
+                  </div>
                 </div>
-              </div>
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-center h-full text-muted-foreground">
+          <div className="flex items-center justify-center flex-1 text-muted-foreground">
             Task not found
           </div>
         )}
