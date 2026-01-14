@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/actions/custom-fields";
 import { useCustomFields } from "@/lib/query/queries/custom-fields";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
+import { queryKeys } from "@/lib/query/queries/tasks";
 import { Settings2, Loader2 } from "lucide-react";
 
 type FieldWithValue = CustomField & { value: string | null };
@@ -33,6 +35,7 @@ export function CustomFields({
   readOnly = false,
 }: CustomFieldsProps) {
   const { data: fieldDefs = [], isLoading } = useCustomFields(boardId);
+  const queryClient = useQueryClient();
   const [savingFieldId, setSavingFieldId] = useState<string | null>(null);
   const [localValues, setLocalValues] = useState<Map<string, string | null>>(new Map());
 
@@ -72,6 +75,8 @@ export function CustomFields({
         newMap.delete(fieldId);
         return newMap;
       });
+      // Invalidate task query to refetch and update UI immediately
+      queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
     }
 
     setSavingFieldId(null);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -26,6 +26,7 @@ export function TaskDescription({
   realTaskId,
 }: TaskDescriptionProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [editorContent, setEditorContent] = useState<string>("");
   const updateTaskMutation = useUpdateTask();
 
   // Use real task ID if available, otherwise use task.id (only if not temp)
@@ -47,7 +48,32 @@ export function TaskDescription({
           "prose prose-sm dark:prose-invert max-w-none focus:outline-none min-h-[100px] p-3 border rounded-md",
       },
     },
+    onUpdate: ({ editor }) => {
+      setEditorContent(editor.getHTML());
+    },
   });
+
+  // Initialize editor content when editor is ready
+  useEffect(() => {
+    if (editor) {
+      setEditorContent(editor.getHTML());
+    }
+  }, [editor]);
+
+  // Get the current content to use for AI buttons
+  // Use editor content when editing, otherwise use task.description
+  const currentContent = isEditing ? editorContent : (task.description || "");
+  
+  // Helper function to get plain text length (strips HTML)
+  const getPlainTextLength = (html: string): number => {
+    if (!html) return 0;
+    // Strip HTML tags and get text length
+    const plainText = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    return plainText.length;
+  };
+
+  const hasContentForRewrite = getPlainTextLength(currentContent) >= 20;
+  const hasContentForSummarize = getPlainTextLength(currentContent) >= 300;
 
   const handleSave = () => {
     if (!editor || !effectiveTaskId) {
@@ -62,6 +88,7 @@ export function TaskDescription({
 
     onChanged();
     setIsEditing(false);
+    setEditorContent(newDescription || "");
 
     updateTaskMutation.mutate(
       { taskId: effectiveTaskId, updates: { description: newDescription } },
@@ -69,6 +96,7 @@ export function TaskDescription({
         onError: () => {
           // Rollback on error
           editor.commands.setContent(oldDescription || "");
+          setEditorContent(oldDescription || "");
         },
       }
     );
@@ -76,6 +104,7 @@ export function TaskDescription({
 
   const handleCancel = () => {
     editor?.commands.setContent(task.description || "");
+    setEditorContent(task.description || "");
     setIsEditing(false);
   };
 
@@ -104,18 +133,20 @@ export function TaskDescription({
           <AlignLeft className="h-4 w-4" />
           Description
         </div>
-        {task.description && !readOnly && (
+        {hasContentForRewrite && !readOnly && (
           <div className="flex items-center gap-1">
             <RewriteButton
-              content={task.description}
+              content={currentContent}
               onApply={handleApplyRewrite}
               minLength={20}
             />
-            <SummaryButton content={task.description} minLength={300} />
+            {hasContentForSummarize && (
+              <SummaryButton content={currentContent} minLength={300} />
+            )}
           </div>
         )}
-        {task.description && readOnly && (
-          <SummaryButton content={task.description} minLength={300} />
+        {hasContentForSummarize && readOnly && (
+          <SummaryButton content={currentContent} minLength={300} />
         )}
       </div>
 
