@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import {
@@ -39,6 +39,34 @@ export function CustomFields({
   const [savingFieldId, setSavingFieldId] = useState<string | null>(null);
   const [localValues, setLocalValues] = useState<Map<string, string | null>>(new Map());
 
+  // Sync local values with task prop - clear local values when task prop updates with matching values
+  // This ensures optimistic updates are cleared once the real data arrives
+  useEffect(() => {
+    setLocalValues((prev) => {
+      if (prev.size === 0) return prev;
+      
+      const newMap = new Map(prev);
+      // Remove local values that now exist in task prop with matching values
+      // This means the optimistic update has been confirmed by the server
+      task.custom_field_values?.forEach((cfv) => {
+        const localValue = newMap.get(cfv.field_id);
+        if (localValue !== undefined && localValue === cfv.value) {
+          newMap.delete(cfv.field_id);
+        }
+      });
+      // Also remove local values for fields that were deleted (value is null)
+      if (task.custom_field_values) {
+        const taskFieldIds = new Set(task.custom_field_values.map(cfv => cfv.field_id));
+        newMap.forEach((localValue, fieldId) => {
+          if (!taskFieldIds.has(fieldId) && localValue === null) {
+            newMap.delete(fieldId);
+          }
+        });
+      }
+      return newMap;
+    });
+  }, [task.custom_field_values]);
+
   // Merge field definitions with task values and local optimistic values
   const fields: FieldWithValue[] = useMemo(() => {
     const valueMap = new Map(
@@ -56,27 +84,89 @@ export function CustomFields({
     
     setSavingFieldId(fieldId);
     
-    // Optimistic update
+    // Optimistic update to local state (for immediate UI feedback)
     setLocalValues((prev) => new Map(prev).set(fieldId, value));
     onChanged();
 
-    const result = await setCustomFieldValue(task.id, fieldId, value);
-    if (!result.success) {
-      // Rollback on error
-      setLocalValues((prev) => {
-        const newMap = new Map(prev);
-        newMap.delete(fieldId);
-        return newMap;
-      });
-    } else {
-      // Clear local value on success (will use task value from next sync)
-      setLocalValues((prev) => {
-        const newMap = new Map(prev);
-        newMap.delete(fieldId);
-        return newMap;
-      });
-      // Invalidate task query to refetch and update UI immediately
+    // Cancel outgoing queries
+    await queryClient.cancelQueries({ queryKey: queryKeys.task(task.id) });
+
+    // Snapshot previous state for rollback
+    const previousTask = queryClient.getQueryData<TaskWithRelations>(
+      queryKeys.task(task.id)
+    );
+
+    // Get custom field info
+    const field = fieldDefs.find((f) => f.id === fieldId);
+    if (!field) {
+      setSavingFieldId(null);
+      return;
+    }
+
+    // Optimistically update query cache
+    queryClient.setQueryData<TaskWithRelations>(
+      queryKeys.task(task.id),
+      (old) => {
+        if (!old) return old;
+
+        // Update or add custom field value
+        const existingValueIndex = old.custom_field_values?.findIndex(
+          (cfv) => cfv.field_id === fieldId
+        );
+
+        const optimisticValue = {
+          id: `temp-${Date.now()}`,
+          field_id: fieldId,
+          value,
+          custom_field: {
+            id: field.id,
+            name: field.name,
+            field_type: field.field_type as "text" | "number" | "dropdown",
+            options: field.options || [],
+            required: field.required,
+            position: field.position,
+          },
+        };
+
+        let newCustomFieldValues: typeof old.custom_field_values;
+        if (existingValueIndex !== undefined && existingValueIndex >= 0) {
+          // Update existing
+          newCustomFieldValues = [...(old.custom_field_values || [])];
+          newCustomFieldValues[existingValueIndex] = optimisticValue;
+        } else {
+          // Add new
+          newCustomFieldValues = [
+            ...(old.custom_field_values || []),
+            optimisticValue,
+          ];
+        }
+
+        return {
+          ...old,
+          custom_field_values: newCustomFieldValues,
+        };
+      }
+    );
+
+    try {
+      const result = await setCustomFieldValue(task.id, fieldId, value);
+      if (!result.success) {
+        throw new Error(result.error || "Failed to set custom field");
+      }
+      // Refetch to get real data (this will update the task prop)
+      // The useEffect will clear the local value when task prop updates
       queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
+    } catch (error) {
+      // Rollback on error
+      if (previousTask) {
+        queryClient.setQueryData(queryKeys.task(task.id), previousTask);
+      }
+      setLocalValues((prev) => {
+        const newMap = new Map(prev);
+        newMap.delete(fieldId);
+        return newMap;
+      });
+      console.error("Failed to set custom field:", error);
     }
 
     setSavingFieldId(null);
