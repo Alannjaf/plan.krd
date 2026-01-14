@@ -1,12 +1,22 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useTransition, useDeferredValue, lazy, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { KanbanBoard } from "@/components/kanban/kanban-board";
-import { ListView } from "@/components/views/list-view";
-import { CalendarView } from "@/components/views/calendar-view";
-import { WorkloadView } from "@/components/views/workload-view";
 import { TaskDetailModal } from "@/components/tasks/task-detail-modal";
+import { Loader2 } from "lucide-react";
+
+// Lazy load views for code splitting (reduce initial bundle size)
+const ListView = lazy(() => import("@/components/views/list-view").then(m => ({ default: m.ListView })));
+const CalendarView = lazy(() => import("@/components/views/calendar-view").then(m => ({ default: m.CalendarView })));
+const WorkloadView = lazy(() => import("@/components/views/workload-view").then(m => ({ default: m.WorkloadView })));
+
+// Loading component for lazy-loaded views
+const ViewLoadingFallback = () => (
+  <div className="flex items-center justify-center h-full">
+    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+  </div>
+);
 import { BoardHeaderActions } from "./board-header-actions";
 import { ViewSwitcher, type ViewType } from "./view-switcher";
 import { BoardFilter, filterTasks, type FilterState } from "./board-filter";
@@ -44,6 +54,10 @@ export function BoardContent({
     dueDateFrom: null,
     dueDateTo: null,
   });
+  const [isPending, startTransition] = useTransition();
+
+  // Use deferred value for filters to keep UI responsive
+  const deferredFilters = useDeferredValue(filters);
 
   // Use query hook for tasks
   const { data: tasks = initialTasks, isLoading } = useTasksWithRelations(
@@ -69,8 +83,22 @@ export function BoardContent({
     }
   }, [searchParams, workspace.id, board.id, router]);
 
-  // Apply filters to tasks
-  const filteredTasks = filterTasks(tasks, filters);
+  // Apply filters to tasks using deferred filters
+  const filteredTasks = useMemo(() => filterTasks(tasks, deferredFilters), [tasks, deferredFilters]);
+
+  // Handle view changes with transition
+  const handleViewChange = (view: ViewType) => {
+    startTransition(() => {
+      setCurrentView(view);
+    });
+  };
+
+  // Handle filter changes with transition
+  const handleFiltersChange = (newFilters: FilterState) => {
+    startTransition(() => {
+      setFilters(newFilters);
+    });
+  };
 
   const handleToggleArchived = () => {
     setShowArchived(!showArchived);
@@ -103,14 +131,14 @@ export function BoardContent({
           <div className="flex items-center gap-3">
             <ViewSwitcher
               currentView={currentView}
-              onViewChange={setCurrentView}
+              onViewChange={handleViewChange}
             />
             <div className="w-px h-6 bg-border" />
             <BoardFilter
               boardId={board.id}
               workspaceId={workspace.id}
               filters={filters}
-              onFiltersChange={setFilters}
+              onFiltersChange={handleFiltersChange}
             />
             <Button
               variant={showArchived ? "secondary" : "ghost"}
@@ -154,26 +182,32 @@ export function BoardContent({
           />
         )}
         {currentView === "list" && (
-          <ListView
-            tasks={filteredTasks}
-            lists={lists}
-            workspaceId={workspace.id}
-            boardId={board.id}
-          />
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <ListView
+              tasks={filteredTasks}
+              lists={lists}
+              workspaceId={workspace.id}
+              boardId={board.id}
+            />
+          </Suspense>
         )}
         {currentView === "calendar" && (
-          <CalendarView
-            tasks={filteredTasks}
-            workspaceId={workspace.id}
-            boardId={board.id}
-          />
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <CalendarView
+              tasks={filteredTasks}
+              workspaceId={workspace.id}
+              boardId={board.id}
+            />
+          </Suspense>
         )}
         {currentView === "workload" && (
-          <WorkloadView
-            tasks={filteredTasks}
-            workspaceId={workspace.id}
-            boardId={board.id}
-          />
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <WorkloadView
+              tasks={filteredTasks}
+              workspaceId={workspace.id}
+              boardId={board.id}
+            />
+          </Suspense>
         )}
       </div>
 

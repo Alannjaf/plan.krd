@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef, useTransition } from "react";
 import {
   DragDropContext,
   type DropResult,
   type DragStart,
 } from "@hello-pangea/dnd";
+import { useRouter } from "next/navigation";
 import { KanbanColumn } from "./kanban-column";
 import { CreateTaskDialog } from "./create-task-dialog";
 import { CreateListDialog } from "./create-list-dialog";
@@ -26,13 +27,14 @@ interface KanbanBoardProps {
 }
 
 export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived = false }: KanbanBoardProps) {
-  const [localLists] = useState(lists);
+  const [localLists, setLocalLists] = useState(lists);
   // Only use local state for drag-and-drop optimistic updates
   const [dragTasks, setDragTasks] = useState<TaskWithRelations[] | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [createTaskListId, setCreateTaskListId] = useState<string | null>(null);
   const [showCreateList, setShowCreateList] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [isPending, startTransition] = useTransition();
   const reorderTasksMutation = useReorderTasksInList();
 
   // Clear drag state when tasks prop changes (if not currently dragging)
@@ -45,26 +47,67 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
   // Use tasks prop directly, or dragTasks during drag operations
   const currentTasks = dragTasks ?? tasks;
 
-  // Group tasks by list - use useMemo for consistency
-  const tasksByList = useMemo(() => {
-    const grouped = currentTasks.reduce(
-      (acc, task) => {
-        if (!acc[task.list_id]) {
-          acc[task.list_id] = [];
-        }
-        acc[task.list_id].push(task);
-        return acc;
-      },
-      {} as Record<string, TaskWithRelations[]>
-    );
+  // Group tasks by list with stable references
+  const prevGroupedRef = useRef<Record<string, TaskWithRelations[]>>({});
 
-    // Sort tasks by position within each list
-    Object.keys(grouped).forEach((listId) => {
-      grouped[listId].sort((a, b) => a.position - b.position);
+  const tasksByList = useMemo(() => {
+    const grouped: Record<string, TaskWithRelations[]> = {};
+
+    // Initialize groups for all lists
+    lists.forEach(list => {
+      grouped[list.id] = [];
     });
 
-    return grouped;
-  }, [currentTasks]);
+    // Group tasks
+    currentTasks.forEach((task) => {
+      if (!grouped[task.list_id]) {
+        grouped[task.list_id] = [];
+      }
+      grouped[task.list_id].push(task);
+    });
+
+    // Sort and check stability
+    const finalGrouped: Record<string, TaskWithRelations[]> = {};
+    let hasChanges = false;
+
+    // Process all lists (both from props and those that might have tasks)
+    const allListIds = new Set([...lists.map(l => l.id), ...Object.keys(grouped)]);
+
+    allListIds.forEach(listId => {
+      const newTasks = grouped[listId] || [];
+      newTasks.sort((a, b) => a.position - b.position);
+
+      const prevTasks = prevGroupedRef.current[listId];
+
+      // Simple length check first
+      if (!prevTasks || prevTasks.length !== newTasks.length) {
+        finalGrouped[listId] = newTasks;
+        hasChanges = true;
+        return;
+      }
+
+      // Deep equality check for tasks in the list (checking ids and positions is usually enough for drag and drop)
+      // But we need to be careful about content updates too.
+      // For drag and drop performance, we primarily care about order. 
+      // If a task updates (title changed), it's object reference in currentTasks changes, so strict equality fails.
+
+      const isSame = newTasks.every((task, index) => task === prevTasks[index]);
+
+      if (isSame) {
+        finalGrouped[listId] = prevTasks;
+      } else {
+        finalGrouped[listId] = newTasks;
+        hasChanges = true;
+      }
+    });
+
+    // If nothing changed in the *structure* of any list, return the previous object to be extra safe
+    // potentially, but here we are returning a new object `finalGrouped` but with potentially reused array values.
+    // This is good enough for React.memo on KanbanColumn which checks checks props.
+
+    prevGroupedRef.current = finalGrouped;
+    return finalGrouped;
+  }, [currentTasks, lists]);
 
   const handleDragStart = useCallback((_: DragStart) => {
     setIsDragging(true);
@@ -174,24 +217,28 @@ export function KanbanBoard({ boardId, workspaceId, lists, tasks, showArchived =
     [dragTasks, tasks, reorderTasksMutation]
   );
 
-  const handleAddTask = (listId: string) => {
+  const handleAddTask = useCallback((listId: string) => {
     setCreateTaskListId(listId);
-  };
+  }, []);
 
-  const handleTaskClick = (taskId: string) => {
-    setSelectedTaskId(taskId);
-  };
+  const handleTaskClick = useCallback((taskId: string) => {
+    startTransition(() => {
+      setSelectedTaskId(taskId);
+    });
+  }, [startTransition]);
 
-  const handleTaskUpdated = () => {
+  const handleTaskUpdated = useCallback(() => {
     // The query cache will be invalidated by the mutations
     // The component will receive updated tasks via props when the query refetches
     // No local state update needed
-  };
+  }, []);
 
-  const handleListCreated = (list: List) => {
-    // Refresh the page to get the new list
-    window.location.reload();
-  };
+  const router = useRouter();
+
+  const handleListCreated = useCallback((list: List) => {
+    setLocalLists((prev) => [...prev, list]);
+    router.refresh();
+  }, [router]);
 
   return (
     <>

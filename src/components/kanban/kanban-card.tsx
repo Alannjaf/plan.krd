@@ -1,5 +1,6 @@
 "use client";
 
+import { memo, useMemo } from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -29,15 +30,40 @@ const priorityColors = {
   urgent: "bg-red-500/20 text-red-400 border-red-500/30",
 };
 
-export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
+const getInitials = (name: string | null, email: string | null) => {
+  if (name) {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  }
+  return email?.slice(0, 2).toUpperCase() || "??";
+};
+
+function KanbanCardComponent({ task, index, onClick }: KanbanCardProps) {
   const completeTaskMutation = useCompleteTask();
   const uncompleteTaskMutation = useUncompleteTask();
-  const isOverdue =
-    task.due_date && new Date(task.due_date) < new Date() && !task.completed ? true : false;
+  
+  const isOverdue = useMemo(() => {
+    if (!task.due_date || task.completed) return false;
+    return new Date(task.due_date) < new Date();
+  }, [task.due_date, task.completed]);
 
-  const completedSubtasks = task.subtasks?.filter((s) => s.completed).length || 0;
-  const totalSubtasks = task.subtasks?.length || 0;
-  const hasSubtasks = totalSubtasks > 0;
+  const subtaskStats = useMemo(() => {
+    const total = task.subtasks?.length || 0;
+    const completed = task.subtasks?.filter((s) => s.completed).length || 0;
+    return { total, completed, hasSubtasks: total > 0 };
+  }, [task.subtasks]);
+
+  const formattedDueDate = useMemo(() => {
+    if (!task.due_date) return null;
+    return new Date(task.due_date).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    });
+  }, [task.due_date]);
 
   const handleCompletionToggle = async (checked: CheckboxPrimitive.CheckedState) => {
     if (task.completed) {
@@ -45,18 +71,6 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
     } else {
       completeTaskMutation.mutate(task.id);
     }
-  };
-
-  const getInitials = (name: string | null, email: string | null) => {
-    if (name) {
-      return name
-        .split(" ")
-        .map((n) => n[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2);
-    }
-    return email?.slice(0, 2).toUpperCase() || "??";
   };
 
   return (
@@ -139,7 +153,7 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
                 </span>
               )}
 
-              {task.due_date && !task.completed && (
+              {task.due_date && !task.completed && formattedDueDate && (
                 <span
                   suppressHydrationWarning
                   className={cn(
@@ -150,24 +164,21 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
                   )}
                 >
                   <Calendar className="w-3 h-3" />
-                  {new Date(task.due_date).toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
+                  {formattedDueDate}
                 </span>
               )}
 
-              {hasSubtasks && (
+              {subtaskStats.hasSubtasks && (
                 <span
                   className={cn(
                     "inline-flex items-center gap-1 text-xs",
-                    completedSubtasks === totalSubtasks
+                    subtaskStats.completed === subtaskStats.total
                       ? "text-green-500"
                       : "text-muted-foreground"
                   )}
                 >
                   <CheckSquare className="w-3 h-3" />
-                  {completedSubtasks}/{totalSubtasks}
+                  {subtaskStats.completed}/{subtaskStats.total}
                 </span>
               )}
 
@@ -226,3 +237,26 @@ export function KanbanCard({ task, index, onClick }: KanbanCardProps) {
     </Draggable>
   );
 }
+
+export const KanbanCard = memo(KanbanCardComponent, (prevProps, nextProps) => {
+  // Custom comparator: only re-render if task data changed
+  const prev = prevProps.task;
+  const next = nextProps.task;
+  
+  return (
+    prev.id === next.id &&
+    prev.title === next.title &&
+    prev.position === next.position &&
+    prev.priority === next.priority &&
+    prev.due_date === next.due_date &&
+    prev.completed === next.completed &&
+    prev.archived === next.archived &&
+    prev.attachments_count === next.attachments_count &&
+    prev.comments_count === next.comments_count &&
+    prev.subtasks?.length === next.subtasks?.length &&
+    prev.assignees?.length === next.assignees?.length &&
+    prev.labels?.length === next.labels?.length &&
+    prevProps.index === nextProps.index &&
+    prevProps.onClick === nextProps.onClick
+  );
+});

@@ -577,10 +577,11 @@ export async function chatWithAssistant(
 
     // Return CSV in a special format that the chat widget can detect
     // We'll encode it as a special JSON response
+    const csvLineCount = reportResult.csv ? reportResult.csv.split("\n").length - 1 : 0;
     const csvResponse = {
       type: "csvReport",
       csv: reportResult.csv,
-      message: `✅ Generated CSV report with ${reportResult.csv?.split("\n").length - 1 || 0} task${reportResult.csv?.split("\n").length - 1 !== 1 ? "s" : ""}`,
+      message: `✅ Generated CSV report with ${csvLineCount} task${csvLineCount !== 1 ? "s" : ""}`,
     };
 
     return {
@@ -836,10 +837,13 @@ export async function decomposeTask(
           validSubtasks[i].due_date = subtaskDeadline.toISOString().split("T")[0];
         } else {
           // Validate AI-suggested deadline is before parent deadline
-          const suggestedDeadline = new Date(validSubtasks[i].due_date);
-          if (suggestedDeadline > parentDeadline) {
-            // Use parent deadline instead
-            validSubtasks[i].due_date = task.due_date;
+          const suggestedDueDate = validSubtasks[i].due_date;
+          if (suggestedDueDate) {
+            const suggestedDeadline = new Date(suggestedDueDate);
+            if (suggestedDeadline > parentDeadline) {
+              // Use parent deadline instead
+              validSubtasks[i].due_date = task.due_date;
+            }
           }
         }
       }
@@ -1103,11 +1107,12 @@ async function findSimilarTasks(
     }
 
     // Count labels
-    const labels = (task.labels as Array<{ labels: { name: string } } | null>) || [];
+    const labels = (task.labels as any) || [];
     for (const label of labels) {
-      if (label.labels?.name) {
-        const count = labelCounts.get(label.labels.name) || 0;
-        labelCounts.set(label.labels.name, count + 1);
+      if (label?.labels?.name) {
+        const labelName = String(label.labels.name);
+        const count = labelCounts.get(labelName) || 0;
+        labelCounts.set(labelName, count + 1);
       }
     }
 

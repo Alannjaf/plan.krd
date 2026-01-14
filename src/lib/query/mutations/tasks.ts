@@ -326,11 +326,11 @@ export function useCompleteTask() {
             data.map((task) =>
               task.id === taskId
                 ? {
-                    ...task,
-                    completed: true,
-                    completed_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString(),
-                  }
+                  ...task,
+                  completed: true,
+                  completed_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                }
                 : task
             )
           );
@@ -376,11 +376,11 @@ export function useUncompleteTask() {
             data.map((task) =>
               task.id === taskId
                 ? {
-                    ...task,
-                    completed: false,
-                    completed_at: null,
-                    updated_at: new Date().toISOString(),
-                  }
+                  ...task,
+                  completed: false,
+                  completed_at: null,
+                  updated_at: new Date().toISOString(),
+                }
                 : task
             )
           );
@@ -409,6 +409,54 @@ export function useReorderTasksInList() {
         throw new Error(result.error || "Failed to reorder tasks");
       }
       return result;
+    },
+    onMutate: async ({ listId, taskIds }) => {
+      // Cancel queries
+      await queryClient.cancelQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
+
+      // Snapshot previous value
+      const previousBoardQueries = queryClient.getQueriesData<TaskWithRelations[]>({
+        queryKey: TASKS_BOARD_PARTIAL_KEY,
+      });
+
+      // Optimistically update
+      previousBoardQueries.forEach(([key, data]) => {
+        if (!data) return;
+
+        const tasksInList = data.filter((t) => t.list_id === listId);
+        const otherTasks = data.filter((t) => t.list_id !== listId);
+
+        // Map of id -> task
+        const taskMap = new Map(data.map(t => [t.id, t]));
+
+        // Reconstruct the list based on taskIds order
+        const reorderedTasks: TaskWithRelations[] = [];
+
+        taskIds.forEach((id, index) => {
+          const task = taskMap.get(id);
+          if (task) {
+            reorderedTasks.push({
+              ...task,
+              list_id: listId, // Ensure list_id is correct
+              position: index, // Update position
+              updated_at: new Date().toISOString()
+            });
+          }
+        });
+
+        const validReorderedIds = new Set(reorderedTasks.map(t => t.id));
+        const keptOtherTasks = otherTasks.filter(t => !validReorderedIds.has(t.id));
+
+        queryClient.setQueryData<TaskWithRelations[]>(key, [...keptOtherTasks, ...reorderedTasks]);
+      });
+
+      return { previousBoardQueries };
+    },
+    onError: (err, variables, context) => {
+      context?.previousBoardQueries?.forEach(([key, data]) => {
+        queryClient.setQueryData(key, data);
+      });
+      queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });

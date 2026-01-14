@@ -129,7 +129,7 @@ export async function getTask(taskId: string, boardId?: string): Promise<TaskWit
   // Sort custom field values by field position
   const sortedCustomFieldValues = (task.custom_field_values || [])
     .filter((cfv: { custom_field: { position: number } | null }) => cfv.custom_field)
-    .sort((a: { custom_field: { position: number } }, b: { custom_field: { position: number } }) => 
+    .sort((a: { custom_field: { position: number } }, b: { custom_field: { position: number } }) =>
       a.custom_field.position - b.custom_field.position
     );
 
@@ -460,31 +460,45 @@ export async function moveTask(
       return { success: true };
     }
 
-    // Get all tasks in this list
-    const { data: tasks } = await supabase
+    // Use specific RPC for reordering within list (if one existed) or just use detailed steps
+    // For Trello-like reorder in same list: 
+    // If moving DOWN (0 -> 5): Items 1-5 shift UP (-1). Task becomes 5.
+    // If moving UP (5 -> 0): Items 0-4 shift DOWN (+1). Task becomes 0.
+    if (newPosition > oldPosition) {
+      // Moving down: 
+      // 1. Shift items (oldPos+1 to newPos) UP (-1)
+      // 2. Update task to newPos
+
+      const { error: shiftError } = await supabase.rpc("decrement_positions_in_range", {
+        p_list_id: sourceListId,
+        p_start_pos: oldPosition + 1,
+        p_end_pos: newPosition
+      });
+
+      if (shiftError) return { success: false, error: shiftError.message };
+
+    } else {
+      // Moving up:
+      // 1. Shift items (newPos to oldPos-1) DOWN (+1)
+      // 2. Update task to newPos
+
+      const { error: shiftError } = await supabase.rpc("increment_positions_in_range", {
+        p_list_id: sourceListId,
+        p_start_pos: newPosition,
+        p_end_pos: oldPosition - 1
+      });
+
+      if (shiftError) return { success: false, error: shiftError.message };
+    }
+
+    // Finally update the moved task
+    const { error: updateError } = await supabase
       .from("tasks")
-      .select("id, position")
-      .eq("list_id", targetListId)
-      .order("position", { ascending: true });
+      .update({ position: newPosition })
+      .eq("id", taskId);
 
-    if (!tasks) {
-      return { success: false, error: "Failed to fetch tasks" };
-    }
+    if (updateError) return { success: false, error: updateError.message };
 
-    // Calculate new positions
-    const updatedTasks = tasks.filter((t) => t.id !== taskId);
-    updatedTasks.splice(newPosition, 0, { id: taskId, position: newPosition });
-
-    // Update all positions
-    for (let i = 0; i < updatedTasks.length; i++) {
-      await supabase
-        .from("tasks")
-        .update({ position: i })
-        .eq("id", updatedTasks[i].id);
-    }
-
-    // Note: No revalidatePath needed - React Query handles cache invalidation
-    // and realtime subscriptions handle live updates
   } else {
     // Moving to a different list
     // Get list names for activity log
@@ -493,31 +507,23 @@ export async function moveTask(
       supabase.from("lists").select("name").eq("id", targetListId).single(),
     ]);
 
-    // Update positions in source list (shift down)
-    await supabase.rpc("decrement_positions_after", {
+    // 1. Shift items in Source list UP to close gap (oldPos + 1 to infinity)
+    const { error: sourceError } = await supabase.rpc("decrement_positions_after", {
       p_list_id: sourceListId,
       p_position: oldPosition,
     });
 
-    // Get tasks in target list to make room
-    const { data: targetTasks } = await supabase
-      .from("tasks")
-      .select("id, position")
-      .eq("list_id", targetListId)
-      .gte("position", newPosition)
-      .order("position", { ascending: false });
+    if (sourceError) return { success: false, error: sourceError.message };
 
-    // Shift positions in target list
-    if (targetTasks) {
-      for (const t of targetTasks) {
-        await supabase
-          .from("tasks")
-          .update({ position: t.position + 1 })
-          .eq("id", t.id);
-      }
-    }
+    // 2. Shift items in Target list DOWN to make space (newPos to infinity)
+    const { error: targetError } = await supabase.rpc("increment_positions_starting_at", {
+      p_list_id: targetListId,
+      p_position: newPosition,
+    });
 
-    // Move the task
+    if (targetError) return { success: false, error: targetError.message };
+
+    // 3. Move the task
     const { error } = await supabase
       .from("tasks")
       .update({ list_id: targetListId, position: newPosition })
@@ -532,9 +538,6 @@ export async function moveTask(
       from: sourceList?.name || "Unknown",
       to: targetList?.name || "Unknown",
     });
-
-    // Note: No revalidatePath needed - React Query handles cache invalidation
-    // and realtime subscriptions handle live updates
   }
 
   return { success: true };
@@ -546,16 +549,15 @@ export async function reorderTasksInList(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
-  for (let i = 0; i < taskIds.length; i++) {
-    const { error } = await supabase
-      .from("tasks")
-      .update({ position: i, list_id: listId })
-      .eq("id", taskIds[i]);
+  // Use the bulk reorder RPC
+  const { error } = await supabase.rpc("reorder_tasks_bulk", {
+    p_list_id: listId,
+    p_task_ids: taskIds
+  });
 
-    if (error) {
-      console.error("Error reordering tasks:", error);
-      return { success: false, error: error.message };
-    }
+  if (error) {
+    console.error("Error reordering tasks:", error);
+    return { success: false, error: error.message };
   }
 
   // Note: No revalidatePath needed - React Query handles cache invalidation

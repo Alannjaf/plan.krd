@@ -10,7 +10,8 @@ import {
   type Subtask,
 } from "@/lib/actions/subtasks";
 import { queryKeys as subtaskQueryKeys } from "../queries/subtasks";
-import { queryKeys as taskQueryKeys, type TaskWithRelations } from "../queries/tasks";
+import { queryKeys as taskQueryKeys } from "../queries/tasks";
+import type { TaskWithRelations } from "@/lib/actions/tasks";
 
 export function useCreateSubtask() {
   const queryClient = useQueryClient();
@@ -382,7 +383,7 @@ export function useReorderSubtasks() {
       return result;
     },
     onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.subtasks(variables.taskId) });
+      queryClient.invalidateQueries({ queryKey: subtaskQueryKeys.subtasks(variables.taskId) });
     },
   });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, memo } from "react";
 import { Droppable } from "@hello-pangea/dnd";
 import { KanbanCard } from "./kanban-card";
 import { ColumnToolbar, type SortOption, type FilterPriority, type FilterDueDate } from "./column-toolbar";
@@ -26,7 +26,7 @@ const priorityOrder: Record<string, number> = {
   low: 1,
 };
 
-export function KanbanColumn({
+export const KanbanColumn = memo(function KanbanColumn({
   list,
   tasks,
   onAddTask,
@@ -200,4 +200,14 @@ export function KanbanColumn({
       )}
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  // Custom comparator: only re-render if relevant props changed
+  return (
+    prevProps.list.id === nextProps.list.id &&
+    prevProps.list.name === nextProps.list.name &&
+    prevProps.readOnly === nextProps.readOnly &&
+    prevProps.tasks === nextProps.tasks && // Reference equality for tasks array
+    prevProps.onAddTask === nextProps.onAddTask &&
+    prevProps.onTaskClick === nextProps.onTaskClick
+  );
+});

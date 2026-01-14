@@ -80,19 +80,13 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
           table: "task_assignees",
         },
         (payload) => {
-          // Invalidate to refresh assignee data with profiles
           const newData = payload.new as AssigneePayload["new"] | null;
           const oldData = payload.old as { task_id?: string } | null;
           const taskId = (newData && "task_id" in newData ? newData.task_id : null) || 
                          (oldData && "task_id" in oldData ? oldData.task_id : null);
           if (taskId) {
-            // Check if this task is in our board
-            const tasks = queryClient.getQueryData<TaskWithRelations[]>(
-              queryKeys.tasksByBoard(boardId)
-            );
-            if (tasks?.some(t => t.id === taskId)) {
-              queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
-            }
+            // Update task's assignees in cache instead of invalidating
+            handleAssigneeChange(taskId);
           }
         }
       )
@@ -110,18 +104,92 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
           const taskId = (newData && "task_id" in newData ? newData.task_id : null) || 
                          (oldData && "task_id" in oldData ? oldData.task_id : null);
           if (taskId) {
-            const tasks = queryClient.getQueryData<TaskWithRelations[]>(
-              queryKeys.tasksByBoard(boardId)
-            );
-            if (tasks?.some(t => t.id === taskId)) {
-              queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
-            }
+            // Update task's labels in cache instead of invalidating
+            handleLabelChange(taskId);
           }
         }
       )
       .subscribe();
 
     channelRef.current = channel;
+
+    // Fetch and update task assignees in cache
+    async function handleAssigneeChange(taskId: string) {
+      const tasks = queryClient.getQueryData<TaskWithRelations[]>(
+        queryKeys.tasksByBoard(boardId)
+      );
+      if (!tasks?.some(t => t.id === taskId)) return;
+
+      // Fetch updated assignees with profiles
+      const { data: assigneesData, error } = await supabase
+        .from("task_assignees")
+        .select("id, user_id, profiles:profiles!task_assignees_user_id_fkey(id, email, full_name, avatar_url)")
+        .eq("task_id", taskId);
+
+      if (error) {
+        console.error("Error fetching assignees:", error);
+        return;
+      }
+
+      // Update cache with new assignees
+      queryClient.setQueryData<TaskWithRelations[]>(
+        queryKeys.tasksByBoard(boardId),
+        (currentTasks) => {
+          if (!currentTasks) return currentTasks;
+          return currentTasks.map((task) =>
+            task.id === taskId
+              ? {
+                  ...task,
+                  assignees: (assigneesData || []).map((a: any) => ({
+                    id: a.id,
+                    user_id: a.user_id,
+                    profiles: a.profiles,
+                  })),
+                }
+              : task
+          );
+        }
+      );
+    }
+
+    // Fetch and update task labels in cache
+    async function handleLabelChange(taskId: string) {
+      const tasks = queryClient.getQueryData<TaskWithRelations[]>(
+        queryKeys.tasksByBoard(boardId)
+      );
+      if (!tasks?.some(t => t.id === taskId)) return;
+
+      // Fetch updated labels
+      const { data: labelsData, error } = await supabase
+        .from("task_labels")
+        .select("id, label_id, labels(id, name, color)")
+        .eq("task_id", taskId);
+
+      if (error) {
+        console.error("Error fetching labels:", error);
+        return;
+      }
+
+      // Update cache with new labels
+      queryClient.setQueryData<TaskWithRelations[]>(
+        queryKeys.tasksByBoard(boardId),
+        (currentTasks) => {
+          if (!currentTasks) return currentTasks;
+          return currentTasks.map((task) =>
+            task.id === taskId
+              ? {
+                  ...task,
+                  labels: (labelsData || []).map((l: any) => ({
+                    id: l.id,
+                    label_id: l.label_id,
+                    labels: l.labels,
+                  })),
+                }
+              : task
+          );
+        }
+      );
+    }
 
     function handleTaskChange(
       eventType: string,
