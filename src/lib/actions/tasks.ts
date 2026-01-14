@@ -21,6 +21,8 @@ export type Task = {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  share_token: string | null;
+  share_enabled: boolean;
 };
 
 export type CustomFieldValue = {
@@ -776,4 +778,160 @@ export async function uncompleteTask(
   // and realtime subscriptions handle live updates
 
   return { success: true };
+}
+
+/**
+ * Generate a share token for a task to enable authenticated sharing
+ */
+export async function generateTaskShareToken(
+  taskId: string
+): Promise<{ success: boolean; token?: string; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  // Verify task exists and user has access (by checking if task exists and user can see it)
+  const { data: task, error: fetchError } = await supabase
+    .from("tasks")
+    .select("id")
+    .eq("id", taskId)
+    .single();
+
+  if (fetchError || !task) {
+    return { success: false, error: "Task not found" };
+  }
+
+  // Generate a new UUID token
+  const shareToken = crypto.randomUUID();
+
+  const { data, error } = await supabase
+    .from("tasks")
+    .update({
+      share_token: shareToken,
+      share_enabled: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId)
+    .select("share_token")
+    .single();
+
+  if (error) {
+    logger.error("Error generating task share token", error, { taskId });
+    return { success: false, error: error.message };
+  }
+
+  return { success: true, token: data.share_token };
+}
+
+/**
+ * Revoke task sharing by removing the share token
+ */
+export async function revokeTaskShareToken(
+  taskId: string
+): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  // Verify task exists
+  const { data: task, error: fetchError } = await supabase
+    .from("tasks")
+    .select("id")
+    .eq("id", taskId)
+    .single();
+
+  if (fetchError || !task) {
+    return { success: false, error: "Task not found" };
+  }
+
+  const { error } = await supabase
+    .from("tasks")
+    .update({
+      share_token: null,
+      share_enabled: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", taskId);
+
+  if (error) {
+    logger.error("Error revoking task share token", error, { taskId });
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
+
+/**
+ * Check if a task has sharing enabled
+ */
+export async function isTaskShareEnabled(
+  taskId: string
+): Promise<{ success: boolean; isShared?: boolean; token?: string; error?: string }> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("share_enabled, share_token")
+    .eq("id", taskId)
+    .single();
+
+  if (error) {
+    logger.error("Error checking task share status", error, { taskId });
+    return { success: false, error: error.message };
+  }
+
+  const isShared = data.share_enabled && data.share_token !== null;
+
+  return { success: true, isShared, token: data.share_token || undefined };
+}
+
+/**
+ * Get task by share token (requires authentication)
+ */
+export async function getTaskByShareToken(
+  token: string
+): Promise<{ success: boolean; task?: TaskWithRelations; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  // Find task by share token
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .select("id, share_enabled")
+    .eq("share_token", token)
+    .eq("share_enabled", true)
+    .single();
+
+  if (error || !task) {
+    logger.error("Error fetching task by share token", error, { token });
+    return { success: false, error: "Task not found or sharing is disabled" };
+  }
+
+  // Get full task with relations
+  const fullTask = await getTask(task.id);
+
+  if (!fullTask) {
+    return { success: false, error: "Task not found" };
+  }
+
+  return { success: true, task: fullTask };
 }

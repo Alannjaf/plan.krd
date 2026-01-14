@@ -18,6 +18,7 @@ const ViewLoadingFallback = () => (
   </div>
 );
 import { BoardHeaderActions } from "./board-header-actions";
+import { InviteBoardMemberDialog } from "./invite-member-dialog";
 import { ViewSwitcher, type ViewType } from "./view-switcher";
 import { BoardFilter, filterTasks, type FilterState } from "./board-filter";
 import { Button } from "@/components/ui/button";
@@ -165,6 +166,7 @@ export function BoardContent({
                 </>
               )}
             </Button>
+            <InviteBoardMemberDialog boardId={board.id} />
             <BoardHeaderActions board={board} workspaceId={workspace.id} />
           </div>
         </div>

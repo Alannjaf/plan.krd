@@ -39,7 +39,8 @@ import { useDeleteTask, useArchiveTask, useUnarchiveTask } from "@/lib/query/mut
 import { useRealtimeComments } from "@/lib/hooks/use-realtime-comments";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, MessageSquare, History, Paperclip, Trash2, Archive, ArchiveRestore } from "lucide-react";
+import { Loader2, MessageSquare, History, Paperclip, Trash2, Archive, ArchiveRestore, Share2 } from "lucide-react";
+import { TaskShareDialog } from "./task-share-dialog";
 import { AutoTagSuggestions } from "@/components/ai/auto-tag-suggestions";
 import { useLabels } from "@/lib/query/queries/labels";
 import { useUpdateTask } from "@/lib/query/mutations/tasks";
@@ -78,6 +79,7 @@ export function TaskDetailModal({
   const { data: workspaceMembers = [] } = useWorkspaceMembers(workspaceId);
   const { data: customFields = [] } = useCustomFields(boardId);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
   const [activeTab, setActiveTab] = useState("comments");
   const [commentsReady, setCommentsReady] = useState(false);
   const hasChanges = useRef(false);
@@ -590,6 +592,15 @@ export function TaskDetailModal({
                             <Button
                               variant="ghost"
                               className="w-full justify-start"
+                              onClick={() => setShowShareDialog(true)}
+                              disabled={!taskId || taskId.startsWith("temp-")}
+                            >
+                              <Share2 className="mr-2 h-4 w-4" />
+                              Share Task
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              className="w-full justify-start"
                               onClick={handleArchiveToggle}
                               disabled={archiveTaskMutation.isPending || unarchiveTaskMutation.isPending}
                             >
@@ -625,6 +636,15 @@ export function TaskDetailModal({
           <div className="flex items-center justify-center flex-1 text-muted-foreground">
             Task not found
           </div>
+        )}
+
+        {/* Share Dialog */}
+        {taskId && !taskId.startsWith("temp-") && (
+          <TaskShareDialog
+            taskId={taskId}
+            open={showShareDialog}
+            onOpenChange={setShowShareDialog}
+          />
         )}
 
         {/* Delete Confirmation Dialog */}
