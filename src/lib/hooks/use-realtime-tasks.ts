@@ -131,23 +131,54 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
         return;
       }
 
+      // Type for Supabase response (profiles might be array or object)
+      type AssigneeResponse = {
+        id: string;
+        user_id: string;
+        profiles: {
+          id: string;
+          email: string | null;
+          full_name: string | null;
+          avatar_url: string | null;
+        } | {
+          id: string;
+          email: string | null;
+          full_name: string | null;
+          avatar_url: string | null;
+        }[] | null;
+      };
+
       // Update cache with new assignees
       queryClient.setQueryData<TaskWithRelations[]>(
         queryKeys.tasksByBoard(boardId),
         (currentTasks) => {
           if (!currentTasks) return currentTasks;
-          return currentTasks.map((task) =>
-            task.id === taskId
-              ? {
-                  ...task,
-                  assignees: (assigneesData || []).map((a: any) => ({
-                    id: a.id,
-                    user_id: a.user_id,
-                    profiles: a.profiles,
-                  })),
-                }
-              : task
-          );
+          return currentTasks.map((task) => {
+            if (task.id !== taskId) return task;
+            
+            const assignees = ((assigneesData as unknown as AssigneeResponse[] | null) || []).map((a) => {
+              // Handle profiles which might be an object or array from Supabase
+              const profileData = Array.isArray(a.profiles) 
+                ? a.profiles[0] 
+                : a.profiles;
+              
+              return {
+                id: a.id,
+                user_id: a.user_id,
+                profiles: profileData || {
+                  id: "",
+                  email: null,
+                  full_name: null,
+                  avatar_url: null,
+                },
+              };
+            });
+            
+            return {
+              ...task,
+              assignees,
+            } as TaskWithRelations;
+          });
         }
       );
     }
@@ -170,23 +201,51 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
         return;
       }
 
+      // Type for Supabase response (labels might be array or object)
+      type LabelResponse = {
+        id: string;
+        label_id: string;
+        labels: {
+          id: string;
+          name: string;
+          color: string;
+        } | {
+          id: string;
+          name: string;
+          color: string;
+        }[] | null;
+      };
+
       // Update cache with new labels
       queryClient.setQueryData<TaskWithRelations[]>(
         queryKeys.tasksByBoard(boardId),
         (currentTasks) => {
           if (!currentTasks) return currentTasks;
-          return currentTasks.map((task) =>
-            task.id === taskId
-              ? {
-                  ...task,
-                  labels: (labelsData || []).map((l: any) => ({
-                    id: l.id,
-                    label_id: l.label_id,
-                    labels: l.labels,
-                  })),
-                }
-              : task
-          );
+          return currentTasks.map((task) => {
+            if (task.id !== taskId) return task;
+            
+            const labels = ((labelsData as unknown as LabelResponse[] | null) || []).map((l) => {
+              // Handle labels which might be an object or array from Supabase
+              const labelData = Array.isArray(l.labels) 
+                ? l.labels[0] 
+                : l.labels;
+              
+              return {
+                id: l.id,
+                label_id: l.label_id,
+                labels: labelData || {
+                  id: "",
+                  name: "",
+                  color: "",
+                },
+              };
+            });
+            
+            return {
+              ...task,
+              labels,
+            } as TaskWithRelations;
+          });
         }
       );
     }

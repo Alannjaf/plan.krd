@@ -8,6 +8,7 @@ import {
   type Attachment,
 } from "@/lib/actions/attachments";
 import { queryKeys } from "../queries/attachments";
+import { showError, showSuccess } from "@/lib/utils/errors";
 
 export function useUploadAttachment() {
   const queryClient = useQueryClient();
@@ -21,7 +22,11 @@ export function useUploadAttachment() {
       return result.attachment!;
     },
     onSuccess: (data, variables) => {
+      showSuccess("Attachment uploaded successfully");
       queryClient.invalidateQueries({ queryKey: queryKeys.attachments(variables.taskId) });
+    },
+    onError: (err) => {
+      showError(err, "Failed to upload attachment");
     },
   });
 }
@@ -38,7 +43,11 @@ export function useDeleteAttachment() {
       return result;
     },
     onSuccess: () => {
+      showSuccess("Attachment deleted successfully");
       queryClient.invalidateQueries({ queryKey: ["attachments"] });
+    },
+    onError: (err) => {
+      showError(err, "Failed to delete attachment");
     },
   });
 }
@@ -66,7 +75,11 @@ export function useCreateAttachmentRecord() {
       return result.attachment!;
     },
     onSuccess: (data, variables) => {
+      showSuccess("Attachment record created");
       queryClient.invalidateQueries({ queryKey: queryKeys.attachments(variables.taskId) });
+    },
+    onError: (err) => {
+      showError(err, "Failed to create attachment record");
     },
   });
 }

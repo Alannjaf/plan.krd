@@ -15,6 +15,7 @@ import {
   type TaskWithRelations,
 } from "@/lib/actions/tasks";
 import { queryKeys } from "../queries/tasks";
+import { showError, showSuccess, getErrorMessage } from "@/lib/utils/errors";
 
 // Partial key for matching all board task caches
 const TASKS_BOARD_PARTIAL_KEY = ["tasks", "board"] as const;
@@ -91,6 +92,8 @@ export function useCreateTask() {
     onSuccess: (realTask, variables, context) => {
       if (!context) return;
 
+      showSuccess("Task created successfully");
+
       // Convert Task to TaskWithRelations
       const realTaskWithRelations: TaskWithRelations = {
         ...realTask,
@@ -124,6 +127,7 @@ export function useCreateTask() {
       queryClient.setQueryData(queryKeys.task(realTask.id), realTaskWithRelations);
     },
     onError: (err, variables, context) => {
+      showError(err, "Failed to create task");
       // Restore all previous values on error
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
@@ -187,7 +191,11 @@ export function useUpdateTask() {
 
       return { previousBoardQueries, previousTask };
     },
+    onSuccess: () => {
+      showSuccess("Task updated successfully");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to update task");
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
@@ -232,7 +240,11 @@ export function useDeleteTask() {
 
       return { previousBoardQueries };
     },
+    onSuccess: () => {
+      showSuccess("Task deleted successfully");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to delete task");
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
@@ -262,6 +274,12 @@ export function useMoveTask() {
       }
       return result;
     },
+    onSuccess: () => {
+      showSuccess("Task moved successfully");
+    },
+    onError: (err) => {
+      showError(err, "Failed to move task");
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
@@ -278,6 +296,12 @@ export function useArchiveTask() {
       }
       return result;
     },
+    onSuccess: () => {
+      showSuccess("Task archived successfully");
+    },
+    onError: (err) => {
+      showError(err, "Failed to archive task");
+    },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
     },
@@ -293,6 +317,12 @@ export function useUnarchiveTask() {
         throw new Error(result.error || "Failed to unarchive task");
       }
       return result;
+    },
+    onSuccess: () => {
+      showSuccess("Task unarchived successfully");
+    },
+    onError: (err) => {
+      showError(err, "Failed to unarchive task");
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
@@ -339,7 +369,11 @@ export function useCompleteTask() {
 
       return { previousBoardQueries };
     },
+    onSuccess: () => {
+      showSuccess("Task completed");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to complete task");
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
@@ -389,7 +423,11 @@ export function useUncompleteTask() {
 
       return { previousBoardQueries };
     },
+    onSuccess: () => {
+      showSuccess("Task marked as incomplete");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to uncomplete task");
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
@@ -452,7 +490,11 @@ export function useReorderTasksInList() {
 
       return { previousBoardQueries };
     },
+    onSuccess: () => {
+      showSuccess("Tasks reordered successfully");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to reorder tasks");
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });

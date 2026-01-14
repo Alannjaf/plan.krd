@@ -20,10 +20,13 @@ export default async function PublicBoardPage({ params }: PublicBoardPageProps) 
   }
 
   // Fetch lists and tasks for the board
-  const [lists, tasks] = await Promise.all([
+  const [lists, tasksResult] = await Promise.all([
     getLists(board.id),
     getTasksWithRelations(board.id),
   ]);
+
+  // Handle both array and paginated result for backward compatibility
+  const tasks = Array.isArray(tasksResult) ? tasksResult : tasksResult.tasks;
 
   return (
     <Suspense fallback={<div className="flex items-center justify-center h-screen">Loading...</div>}>

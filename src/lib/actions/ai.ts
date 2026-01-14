@@ -1107,7 +1107,12 @@ async function findSimilarTasks(
     }
 
     // Count labels
-    const labels = (task.labels as any) || [];
+    type TaskLabel = {
+      labels?: {
+        name?: string;
+      } | null;
+    };
+    const labels = (task.labels as TaskLabel[] | null | undefined) || [];
     for (const label of labels) {
       if (label?.labels?.name) {
         const labelName = String(label.labels.name);

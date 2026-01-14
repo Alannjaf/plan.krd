@@ -3,6 +3,8 @@
  * Uses the google/gemini-3-flash-preview model for AI features
  */
 
+import { getEnv } from "@/lib/env";
+
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MODEL = "google/gemini-3-flash-preview";
 
@@ -48,7 +50,14 @@ export async function chatCompletion(
     maxTokens?: number;
   }
 ): Promise<{ success: boolean; content?: string; error?: string }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  let env;
+  try {
+    env = getEnv();
+  } catch {
+    return { success: false, error: "Environment configuration error" };
+  }
+
+  const apiKey = env.OPENROUTER_API_KEY;
 
   if (!apiKey) {
     return { success: false, error: "OpenRouter API key not configured" };
@@ -60,7 +69,7 @@ export async function chatCompletion(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+        "HTTP-Referer": env.NEXT_PUBLIC_APP_URL,
         "X-Title": "Plan.krd",
       },
       body: JSON.stringify({
@@ -108,7 +117,15 @@ export async function* streamChatCompletion(
     maxTokens?: number;
   }
 ): AsyncGenerator<{ content?: string; error?: string; done?: boolean }> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  let env;
+  try {
+    env = getEnv();
+  } catch {
+    yield { error: "Environment configuration error" };
+    return;
+  }
+
+  const apiKey = env.OPENROUTER_API_KEY;
 
   if (!apiKey) {
     yield { error: "OpenRouter API key not configured" };
@@ -121,7 +138,7 @@ export async function* streamChatCompletion(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
-        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+        "HTTP-Referer": env.NEXT_PUBLIC_APP_URL,
         "X-Title": "Plan.krd",
       },
       body: JSON.stringify({

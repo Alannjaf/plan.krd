@@ -114,7 +114,7 @@ export async function getTask(taskId: string, boardId?: string): Promise<TaskWit
   }
 
   // Get counts for attachments and comments in parallel
-  // Only query if we have a valid UUID (not temp ID)
+  // Using head: true and count: "exact" for efficient counting without fetching data
   const [{ count: attachments_count }, { count: comments_count }] = await Promise.all([
     supabase
       .from("attachments")
@@ -175,8 +175,36 @@ export async function getTasksByBoard(boardId: string): Promise<Task[]> {
   return data || [];
 }
 
-export async function getTasksWithRelations(boardId: string, includeArchived = false): Promise<TaskWithRelations[]> {
+export type PaginationParams = {
+  limit?: number;
+  offset?: number;
+};
+
+export type PaginatedTasksResult = {
+  tasks: TaskWithRelations[];
+  total: number;
+  hasMore: boolean;
+};
+
+// Function overloads for type safety
+export async function getTasksWithRelations(
+  boardId: string,
+  includeArchived?: boolean,
+  pagination?: PaginationParams
+): Promise<PaginatedTasksResult>;
+export async function getTasksWithRelations(
+  boardId: string,
+  includeArchived?: boolean,
+  pagination?: undefined
+): Promise<TaskWithRelations[]>;
+export async function getTasksWithRelations(
+  boardId: string,
+  includeArchived = false,
+  pagination?: PaginationParams
+): Promise<TaskWithRelations[] | PaginatedTasksResult> {
   const supabase = await createClient();
+  const limit = pagination?.limit ?? 100; // Default to 100, no limit if not specified
+  const offset = pagination?.offset ?? 0;
 
   // Get all tasks with relations in a single query using nested selects
   let query = supabase
@@ -203,7 +231,7 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
         assignee_id,
         assignee:profiles!subtasks_assignee_id_fkey(id, email, full_name, avatar_url)
       )
-    `)
+    `, { count: pagination ? "exact" : undefined })
     .eq("lists.board_id", boardId)
     .order("position", { ascending: true });
 
@@ -211,15 +239,20 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
     query = query.eq("archived", false);
   }
 
-  const { data: tasks, error: tasksError } = await query;
+  // Apply pagination if specified
+  if (pagination) {
+    query = query.range(offset, offset + limit - 1);
+  }
+
+  const { data: tasks, error: tasksError, count } = await query;
 
   if (tasksError) {
     console.error("Error fetching tasks:", tasksError);
-    return [];
+    return pagination ? { tasks: [], total: 0, hasMore: false } : [];
   }
 
   if (!tasks || tasks.length === 0) {
-    return [];
+    return pagination ? { tasks: [], total: count ?? 0, hasMore: false } : [];
   }
 
   const taskIds = tasks.map((t) => t.id);
@@ -250,29 +283,72 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
     commentsCountByTask.set(c.task_id, count + 1);
   });
 
+  // Type for raw Supabase task response with nested relations
+  type RawTaskAssignee = {
+    id: string;
+    user_id: string;
+    profiles: {
+      id: string;
+      email: string | null;
+      full_name: string | null;
+      avatar_url: string | null;
+    } | null;
+  };
+
+  type RawTaskLabel = {
+    id: string;
+    label_id: string;
+    labels: {
+      id: string;
+      name: string;
+      color: string;
+    } | null;
+  };
+
+  type RawSubtask = {
+    id: string;
+    title: string;
+    completed: boolean;
+    position: number;
+    due_date: string | null;
+    assignee_id: string | null;
+    assignee: {
+      id: string;
+      email: string | null;
+      full_name: string | null;
+      avatar_url: string | null;
+    } | null;
+  };
+
+  type RawTaskResponse = Task & {
+    assignees: RawTaskAssignee[] | null;
+    labels: RawTaskLabel[] | null;
+    subtasks: RawSubtask[] | null;
+  };
+
   // Combine tasks with their relations
-  return tasks.map((task: any) => ({
+  const transformedTasks = (tasks as RawTaskResponse[]).map((task) => ({
     ...task,
-    assignees: (task.assignees || []).map((a: any) => ({
+    assignees: (task.assignees || []).map((a) => ({
       id: a.id,
       user_id: a.user_id,
-      profiles: a.profiles as {
-        id: string;
-        email: string | null;
-        full_name: string | null;
-        avatar_url: string | null;
+      profiles: a.profiles || {
+        id: "",
+        email: null,
+        full_name: null,
+        avatar_url: null,
       },
     })),
-    labels: (task.labels || []).map((l: any) => ({
+    labels: (task.labels || []).map((l) => ({
       id: l.id,
       label_id: l.label_id,
-      labels: l.labels as {
-        id: string;
-        name: string;
-        color: string;
+      labels: l.labels || {
+        id: "",
+        name: "",
+        color: "",
       },
     })),
-    subtasks: (task.subtasks || []).sort((a: any, b: any) => a.position - b.position).map((s: any) => ({
+    subtasks: (task.subtasks || []).sort((a, b) => a.position - b.position).map((s) => ({
       id: s.id,
       title: s.title,
       completed: s.completed,
@@ -290,6 +366,19 @@ export async function getTasksWithRelations(boardId: string, includeArchived = f
     attachments_count: attachmentsCountByTask.get(task.id) || 0,
     comments_count: commentsCountByTask.get(task.id) || 0,
   })) as TaskWithRelations[];
+
+  // Return paginated result if pagination was requested
+  if (pagination) {
+    const total = count ?? 0;
+    return {
+      tasks: transformedTasks,
+      total,
+      hasMore: offset + transformedTasks.length < total,
+    } as PaginatedTasksResult;
+  }
+
+  // Return array for backward compatibility
+  return transformedTasks;
 }
 
 export async function createTask(

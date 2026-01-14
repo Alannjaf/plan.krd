@@ -12,6 +12,7 @@ import {
 import { queryKeys as subtaskQueryKeys } from "../queries/subtasks";
 import { queryKeys as taskQueryKeys } from "../queries/tasks";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
+import { showError, showSuccess } from "@/lib/utils/errors";
 
 export function useCreateSubtask() {
   const queryClient = useQueryClient();
@@ -90,6 +91,7 @@ export function useCreateSubtask() {
       return { previousTask, previousBoardQueries };
     },
     onError: (err, variables, context) => {
+      showError(err, "Failed to create subtask");
       // Rollback on error
       if (context?.previousTask) {
         queryClient.setQueryData(taskQueryKeys.task(variables.taskId), context.previousTask);
@@ -99,6 +101,7 @@ export function useCreateSubtask() {
       });
     },
     onSuccess: (data, variables) => {
+      showSuccess("Subtask created");
       // Replace optimistic subtask with real one
       const realSubtask = {
         id: data.subtask.id,
@@ -232,7 +235,11 @@ export function useUpdateSubtask() {
 
       return { previousTask, previousBoardQueries };
     },
+    onSuccess: () => {
+      showSuccess("Subtask updated");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to update subtask");
       // Rollback on error
       if (context?.previousTask) {
         queryClient.setQueryData(taskQueryKeys.task(variables.taskId), context.previousTask);
@@ -293,7 +300,11 @@ export function useDeleteSubtask() {
 
       return { previousTask, previousBoardQueries };
     },
+    onSuccess: () => {
+      showSuccess("Subtask deleted");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to delete subtask");
       // Rollback on error
       if (context?.previousTask) {
         queryClient.setQueryData(taskQueryKeys.task(variables.taskId), context.previousTask);
@@ -358,7 +369,11 @@ export function useToggleSubtask() {
 
       return { previousTask, previousBoardQueries };
     },
+    onSuccess: () => {
+      showSuccess("Subtask toggled");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to toggle subtask");
       // Rollback on error
       if (context?.previousTask) {
         queryClient.setQueryData(taskQueryKeys.task(variables.taskId), context.previousTask);
@@ -383,7 +398,11 @@ export function useReorderSubtasks() {
       return result;
     },
     onSuccess: (data, variables) => {
+      showSuccess("Subtasks reordered");
       queryClient.invalidateQueries({ queryKey: subtaskQueryKeys.subtasks(variables.taskId) });
+    },
+    onError: (err) => {
+      showError(err, "Failed to reorder subtasks");
     },
   });
 }

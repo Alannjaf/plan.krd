@@ -13,7 +13,7 @@ interface BoardPageProps {
 export default async function BoardPage({ params }: BoardPageProps) {
   const { workspaceId, boardId } = await params;
 
-  const [workspace, board, lists, tasks] = await Promise.all([
+  const [workspace, board, lists, tasksResult] = await Promise.all([
     getWorkspace(workspaceId),
     getBoard(boardId),
     getLists(boardId),
@@ -23,6 +23,9 @@ export default async function BoardPage({ params }: BoardPageProps) {
   if (!workspace || !board) {
     notFound();
   }
+
+  // Handle both array and paginated result for backward compatibility
+  const tasks = Array.isArray(tasksResult) ? tasksResult : tasksResult.tasks;
 
   return (
     <Suspense fallback={<div>Loading...</div>}>

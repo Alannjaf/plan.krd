@@ -78,6 +78,9 @@ function KanbanCardComponent({ task, index, onClick }: KanbanCardProps) {
         <Card
           ref={provided.innerRef}
           {...provided.draggableProps}
+          role="button"
+          aria-label={`Task: ${task.title}${task.priority ? `, Priority: ${task.priority}` : ""}${task.due_date ? `, Due: ${formattedDueDate}` : ""}`}
+          tabIndex={0}
           {...provided.dragHandleProps}
           onClick={() => onClick?.(task.id)}
           className={cn(
@@ -98,6 +101,7 @@ function KanbanCardComponent({ task, index, onClick }: KanbanCardProps) {
                 disabled={completeTaskMutation.isPending || uncompleteTaskMutation.isPending}
                 className="h-4 w-4"
                 onClick={(e) => e.stopPropagation()}
+                aria-label={task.completed ? `Mark ${task.title} as incomplete` : `Mark ${task.title} as complete`}
               />
               {task.completed && (
                 <CheckCircle2 className="h-4 w-4 text-green-500" />

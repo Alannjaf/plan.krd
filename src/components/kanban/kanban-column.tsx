@@ -118,12 +118,19 @@ export const KanbanColumn = memo(function KanbanColumn({
   const filteredCount = tasks.length - sortedTasks.length;
 
   return (
-    <div className="flex flex-col w-72 shrink-0 bg-secondary/30 rounded-xl border border-border/50">
+    <div 
+      className="flex flex-col w-72 shrink-0 bg-secondary/30 rounded-xl border border-border/50"
+      role="region"
+      aria-label={`Column: ${list.name}`}
+    >
       {/* Column Header */}
       <div className="flex items-center justify-between p-3 border-b border-border/50">
         <div className="flex items-center gap-2">
-          <h3 className="font-semibold text-sm">{list.name}</h3>
-          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+          <h3 className="font-semibold text-sm" id={`column-${list.id}-title`}>{list.name}</h3>
+          <span 
+            className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full"
+            aria-label={`${sortedTasks.length} tasks${filteredCount > 0 ? ` out of ${tasks.length}` : ""}`}
+          >
             {sortedTasks.length}
             {filteredCount > 0 && (
               <span className="text-muted-foreground/50">/{tasks.length}</span>
@@ -151,6 +158,9 @@ export const KanbanColumn = memo(function KanbanColumn({
               snapshot.isDraggingOver && "bg-primary/5",
               readOnly && "cursor-default"
             )}
+            role="group"
+            aria-labelledby={`column-${list.id}-title`}
+            aria-label={`Task list for ${list.name}`}
           >
             {sortedTasks.map((task, index) => (
               <KanbanCard
@@ -192,8 +202,9 @@ export const KanbanColumn = memo(function KanbanColumn({
             variant="ghost"
             className="w-full justify-start text-muted-foreground hover:text-foreground"
             onClick={() => onAddTask(list.id)}
+            aria-label={`Add task to ${list.name} column`}
           >
-            <Plus className="h-4 w-4 mr-2 rtl:ml-2 rtl:mr-0" />
+            <Plus className="h-4 w-4 mr-2 rtl:ml-2 rtl:mr-0" aria-hidden="true" />
             Add a task
           </Button>
         </div>

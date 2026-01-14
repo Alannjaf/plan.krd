@@ -10,6 +10,7 @@ import {
   type Board,
 } from "@/lib/actions/boards";
 import { queryKeys } from "../queries/boards";
+import { showError, showSuccess } from "@/lib/utils/errors";
 
 export function useCreateBoard() {
   const queryClient = useQueryClient();
@@ -31,7 +32,11 @@ export function useCreateBoard() {
       return result.board!;
     },
     onSuccess: (data, variables) => {
+      showSuccess("Board created successfully");
       queryClient.invalidateQueries({ queryKey: queryKeys.boards(variables.workspaceId) });
+    },
+    onError: (err) => {
+      showError(err, "Failed to create board");
     },
   });
 }
@@ -54,9 +59,13 @@ export function useUpdateBoard() {
       return result;
     },
     onSuccess: () => {
+      showSuccess("Board updated successfully");
       // Invalidate all board queries since we don't know workspaceId here
       queryClient.invalidateQueries({ queryKey: ["boards"] });
       queryClient.invalidateQueries({ queryKey: ["board"] });
+    },
+    onError: (err) => {
+      showError(err, "Failed to update board");
     },
   });
 }
@@ -73,9 +82,13 @@ export function useDeleteBoard() {
       return result;
     },
     onSuccess: () => {
+      showSuccess("Board deleted successfully");
       // Invalidate all board queries since we don't know workspaceId here
       queryClient.invalidateQueries({ queryKey: ["boards"] });
       queryClient.invalidateQueries({ queryKey: ["board"] });
+    },
+    onError: (err) => {
+      showError(err, "Failed to delete board");
     },
   });
 }
@@ -92,9 +105,13 @@ export function useArchiveBoard() {
       return result;
     },
     onSuccess: () => {
+      showSuccess("Board archived successfully");
       // Invalidate all board queries since we don't know workspaceId here
       queryClient.invalidateQueries({ queryKey: ["boards"] });
       queryClient.invalidateQueries({ queryKey: ["board"] });
+    },
+    onError: (err) => {
+      showError(err, "Failed to archive board");
     },
   });
 }
@@ -111,9 +128,13 @@ export function useUnarchiveBoard() {
       return result;
     },
     onSuccess: () => {
+      showSuccess("Board unarchived successfully");
       // Invalidate all board queries since we don't know workspaceId here
       queryClient.invalidateQueries({ queryKey: ["boards"] });
       queryClient.invalidateQueries({ queryKey: ["board"] });
+    },
+    onError: (err) => {
+      showError(err, "Failed to unarchive board");
     },
   });
 }

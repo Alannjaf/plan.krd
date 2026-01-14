@@ -5,6 +5,8 @@ import { RTLProvider } from "@/lib/i18n/rtl-provider";
 import { QueryProvider } from "@/lib/query/provider";
 import { headers } from "next/headers";
 import { getLocaleFromHeaders, getDirectionFromLocale } from "@/lib/i18n/server-locale";
+import { Toaster } from "@/components/ui/toaster";
+import { ErrorBoundaryWrapper } from "@/components/error-boundary-wrapper";
 
 const outfit = Outfit({
   variable: "--font-geist-sans",
@@ -40,11 +42,14 @@ export default async function RootLayout({
       <body
         className={`${outfit.variable} ${jetbrainsMono.variable} antialiased`}
       >
-        <QueryProvider>
-          <RTLProvider initialLocale={initialLocale}>
-            {children}
-          </RTLProvider>
-        </QueryProvider>
+        <ErrorBoundaryWrapper>
+          <QueryProvider>
+            <RTLProvider initialLocale={initialLocale}>
+              {children}
+              <Toaster />
+            </RTLProvider>
+          </QueryProvider>
+        </ErrorBoundaryWrapper>
       </body>
     </html>
   );

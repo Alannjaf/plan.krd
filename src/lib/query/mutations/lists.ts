@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createList, updateList, deleteList, reorderLists, type List } from "@/lib/actions/lists";
 import { queryKeys } from "../queries/lists";
+import { showError, showSuccess } from "@/lib/utils/errors";
 
 export function useCreateList() {
   const queryClient = useQueryClient();
@@ -36,11 +37,13 @@ export function useCreateList() {
       return { previousLists };
     },
     onError: (err, variables, context) => {
+      showError(err, "Failed to create list");
       if (context?.previousLists) {
         queryClient.setQueryData(queryKeys.lists(variables.boardId), context.previousLists);
       }
     },
     onSuccess: (data, variables) => {
+      showSuccess("List created successfully");
       queryClient.invalidateQueries({ queryKey: queryKeys.lists(variables.boardId) });
     },
   });
@@ -58,7 +61,11 @@ export function useUpdateList() {
       return result;
     },
     onSuccess: () => {
+      showSuccess("List updated successfully");
       queryClient.invalidateQueries({ queryKey: ["lists"] });
+    },
+    onError: (err) => {
+      showError(err, "Failed to update list");
     },
   });
 }
@@ -75,7 +82,11 @@ export function useDeleteList() {
       return result;
     },
     onSuccess: () => {
+      showSuccess("List deleted successfully");
       queryClient.invalidateQueries({ queryKey: ["lists"] });
+    },
+    onError: (err) => {
+      showError(err, "Failed to delete list");
     },
   });
 }
@@ -92,7 +103,11 @@ export function useReorderLists() {
       return result;
     },
     onSuccess: (data, variables) => {
+      showSuccess("Lists reordered successfully");
       queryClient.invalidateQueries({ queryKey: queryKeys.lists(variables.boardId) });
+    },
+    onError: (err) => {
+      showError(err, "Failed to reorder lists");
     },
   });
 }

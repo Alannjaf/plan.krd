@@ -238,27 +238,27 @@ export function TaskDetailModal({
 
                       {/* Tabs for Comments, Activity, Attachments - Lazy loaded */}
                       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full flex flex-col min-h-0 max-h-[calc(85vh-400px)]">
-                        <TabsList className="w-full justify-start shrink-0">
-                          <TabsTrigger value="comments" className="gap-2">
-                            <MessageSquare className="h-4 w-4" />
+                        <TabsList className="w-full justify-start shrink-0" role="tablist" aria-label="Task details tabs">
+                          <TabsTrigger value="comments" className="gap-2" role="tab" aria-label={`Comments${task.comments_count > 0 ? `, ${task.comments_count} comments` : ""}`}>
+                            <MessageSquare className="h-4 w-4" aria-hidden="true" />
                             Comments
                             {task.comments_count > 0 && (
-                              <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                              <span className="text-xs bg-muted px-1.5 py-0.5 rounded" aria-label={`${task.comments_count} comments`}>
                                 {task.comments_count}
                               </span>
                             )}
                           </TabsTrigger>
-                          <TabsTrigger value="attachments" className="gap-2">
-                            <Paperclip className="h-4 w-4" />
+                          <TabsTrigger value="attachments" className="gap-2" role="tab" aria-label={`Attachments${task.attachments_count > 0 ? `, ${task.attachments_count} attachments` : ""}`}>
+                            <Paperclip className="h-4 w-4" aria-hidden="true" />
                             Attachments
                             {task.attachments_count > 0 && (
-                              <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                              <span className="text-xs bg-muted px-1.5 py-0.5 rounded" aria-label={`${task.attachments_count} attachments`}>
                                 {task.attachments_count}
                               </span>
                             )}
                           </TabsTrigger>
-                          <TabsTrigger value="activity" className="gap-2">
-                            <History className="h-4 w-4" />
+                          <TabsTrigger value="activity" className="gap-2" role="tab" aria-label="Activity log">
+                            <History className="h-4 w-4" aria-hidden="true" />
                             Activity
                           </TabsTrigger>
                         </TabsList>

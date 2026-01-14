@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createComment, updateComment, deleteComment, type Comment } from "@/lib/actions/comments";
 import { queryKeys } from "../queries/comments";
+import { showError, showSuccess } from "@/lib/utils/errors";
 
 export function useCreateComment() {
   const queryClient = useQueryClient();
@@ -58,11 +59,13 @@ export function useCreateComment() {
       return { previousComments };
     },
     onError: (err, variables, context) => {
+      showError(err, "Failed to create comment");
       if (context?.previousComments) {
         queryClient.setQueryData(queryKeys.comments(variables.taskId), context.previousComments);
       }
     },
     onSuccess: (data, variables) => {
+      showSuccess("Comment added");
       // Replace optimistic comment with real comment from server
       queryClient.setQueryData<Comment[]>(queryKeys.comments(variables.taskId), (old) => {
         if (!old) return [data];
@@ -121,7 +124,11 @@ export function useUpdateComment() {
       
       return { previousComments };
     },
+    onSuccess: () => {
+      showSuccess("Comment updated");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to update comment");
       if (context?.previousComments) {
         queryClient.setQueryData(queryKeys.comments(variables.taskId), context.previousComments);
       }
@@ -166,7 +173,11 @@ export function useDeleteComment() {
       
       return { previousComments };
     },
+    onSuccess: () => {
+      showSuccess("Comment deleted");
+    },
     onError: (err, variables, context) => {
+      showError(err, "Failed to delete comment");
       if (context?.previousComments) {
         queryClient.setQueryData(queryKeys.comments(variables.taskId), context.previousComments);
       }

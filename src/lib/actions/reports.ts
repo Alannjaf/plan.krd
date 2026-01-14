@@ -1,7 +1,63 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import type { TaskWithRelations } from "./tasks";
+import type { TaskWithRelations, Task } from "./tasks";
+
+// Type for raw Supabase task response with nested relations
+type RawTaskAssignee = {
+  id: string;
+  user_id: string;
+  profiles: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
+
+type RawTaskLabel = {
+  id: string;
+  label_id: string;
+  labels: {
+    id: string;
+    name: string;
+    color: string;
+  } | null;
+};
+
+type RawSubtask = {
+  id: string;
+  title: string;
+  completed: boolean;
+  position: number;
+  due_date: string | null;
+  assignee_id: string | null;
+  assignee: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    avatar_url: string | null;
+  } | null;
+};
+
+type RawTaskResponse = Task & {
+  assignees: RawTaskAssignee[] | null;
+  labels: RawTaskLabel[] | null;
+  subtasks: RawSubtask[] | null;
+  custom_field_values?: Array<{
+    id: string;
+    field_id: string;
+    value: string | null;
+    custom_field: {
+      id: string;
+      name: string;
+      field_type: "text" | "number" | "dropdown";
+      options: string[];
+      required: boolean;
+      position: number;
+    } | null;
+  }> | null;
+};
 
 export type ReportFilters = {
   completed?: boolean;
@@ -141,19 +197,19 @@ async function fetchCompletedTasksForBoard(
   }
 
   // Filter by assignee and label (client-side filtering as they're in nested relations)
-  let filteredTasks = tasks as any[];
+  let filteredTasks = tasks as RawTaskResponse[];
 
   if (filters.assigneeId) {
     filteredTasks = filteredTasks.filter((task) => {
       const assignees = task.assignees || [];
-      return assignees.some((a: any) => a.user_id === filters.assigneeId);
+      return assignees.some((a) => a.user_id === filters.assigneeId);
     });
   }
 
   if (filters.labelId) {
     filteredTasks = filteredTasks.filter((task) => {
       const labels = task.labels || [];
-      return labels.some((l: any) => l.label_id === filters.labelId);
+      return labels.some((l) => l.label_id === filters.labelId);
     });
   }
 
@@ -186,36 +242,38 @@ async function fetchCompletedTasksForBoard(
   });
 
   // Transform tasks
-  return filteredTasks.map((task: any) => {
+  return filteredTasks.map((task) => {
     // Sort custom field values by field position
     const sortedCustomFieldValues = (task.custom_field_values || [])
-      .filter((cfv: { custom_field: { position: number } | null }) => cfv.custom_field)
-      .sort((a: { custom_field: { position: number } }, b: { custom_field: { position: number } }) =>
-        a.custom_field.position - b.custom_field.position
-      );
+      .filter((cfv) => cfv.custom_field)
+      .sort((a, b) => {
+        const posA = a.custom_field?.position ?? 0;
+        const posB = b.custom_field?.position ?? 0;
+        return posA - posB;
+      });
 
     return {
       ...task,
-      assignees: (task.assignees || []).map((a: any) => ({
+      assignees: (task.assignees || []).map((a) => ({
         id: a.id,
         user_id: a.user_id,
-        profiles: a.profiles as {
-          id: string;
-          email: string | null;
-          full_name: string | null;
-          avatar_url: string | null;
+        profiles: a.profiles || {
+          id: "",
+          email: null,
+          full_name: null,
+          avatar_url: null,
         },
       })),
-      labels: (task.labels || []).map((l: any) => ({
+      labels: (task.labels || []).map((l) => ({
         id: l.id,
         label_id: l.label_id,
-        labels: l.labels as {
-          id: string;
-          name: string;
-          color: string;
+        labels: l.labels || {
+          id: "",
+          name: "",
+          color: "",
         },
       })),
-      subtasks: (task.subtasks || []).sort((a: any, b: any) => a.position - b.position).map((s: any) => ({
+      subtasks: (task.subtasks || []).sort((a, b) => a.position - b.position).map((s) => ({
         id: s.id,
         title: s.title,
         completed: s.completed,
@@ -340,19 +398,19 @@ async function fetchCompletedTasksForWorkspace(
   }
 
   // Filter by assignee and label
-  let filteredTasks = tasks as any[];
+  let filteredTasks = tasks as RawTaskResponse[];
 
   if (filters.assigneeId) {
     filteredTasks = filteredTasks.filter((task) => {
       const assignees = task.assignees || [];
-      return assignees.some((a: any) => a.user_id === filters.assigneeId);
+      return assignees.some((a) => a.user_id === filters.assigneeId);
     });
   }
 
   if (filters.labelId) {
     filteredTasks = filteredTasks.filter((task) => {
       const labels = task.labels || [];
-      return labels.some((l: any) => l.label_id === filters.labelId);
+      return labels.some((l) => l.label_id === filters.labelId);
     });
   }
 
@@ -383,35 +441,37 @@ async function fetchCompletedTasksForWorkspace(
     commentsCountByTask.set(c.task_id, count + 1);
   });
 
-  return filteredTasks.map((task: any) => {
+  return filteredTasks.map((task) => {
     const sortedCustomFieldValues = (task.custom_field_values || [])
-      .filter((cfv: { custom_field: { position: number } | null }) => cfv.custom_field)
-      .sort((a: { custom_field: { position: number } }, b: { custom_field: { position: number } }) =>
-        a.custom_field.position - b.custom_field.position
-      );
+      .filter((cfv) => cfv.custom_field)
+      .sort((a, b) => {
+        const posA = a.custom_field?.position ?? 0;
+        const posB = b.custom_field?.position ?? 0;
+        return posA - posB;
+      });
 
     return {
       ...task,
-      assignees: (task.assignees || []).map((a: any) => ({
+      assignees: (task.assignees || []).map((a) => ({
         id: a.id,
         user_id: a.user_id,
-        profiles: a.profiles as {
-          id: string;
-          email: string | null;
-          full_name: string | null;
-          avatar_url: string | null;
+        profiles: a.profiles || {
+          id: "",
+          email: null,
+          full_name: null,
+          avatar_url: null,
         },
       })),
-      labels: (task.labels || []).map((l: any) => ({
+      labels: (task.labels || []).map((l) => ({
         id: l.id,
         label_id: l.label_id,
-        labels: l.labels as {
-          id: string;
-          name: string;
-          color: string;
+        labels: l.labels || {
+          id: "",
+          name: "",
+          color: "",
         },
       })),
-      subtasks: (task.subtasks || []).sort((a: any, b: any) => a.position - b.position).map((s: any) => ({
+      subtasks: (task.subtasks || []).sort((a, b) => a.position - b.position).map((s) => ({
         id: s.id,
         title: s.title,
         completed: s.completed,
@@ -600,7 +660,7 @@ export async function generateTaskReport(params: {
 
     // Build custom field values map
     const customFieldValuesMap = new Map<string, string>();
-    (task.custom_field_values || []).forEach((cfv: any) => {
+    (task.custom_field_values || []).forEach((cfv) => {
       if (cfv.custom_field) {
         customFieldValuesMap.set(cfv.custom_field.id, cfv.value || "");
       }
