@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { logActivity } from "./activities";
+import { logger } from "@/lib/utils/logger";
 
 export type Task = {
   id: string;
@@ -109,7 +110,7 @@ export async function getTask(taskId: string, boardId?: string): Promise<TaskWit
     .single();
 
   if (error) {
-    console.error("Error fetching task:", error);
+    logger.error("Error fetching task", error, { taskId, boardId });
     return null;
   }
 
@@ -151,7 +152,7 @@ export async function getTasks(listId: string): Promise<Task[]> {
     .order("position", { ascending: true });
 
   if (error) {
-    console.error("Error fetching tasks:", error);
+    logger.error("Error fetching tasks", error, { listId });
     return [];
   }
 
@@ -168,7 +169,7 @@ export async function getTasksByBoard(boardId: string): Promise<Task[]> {
     .order("position", { ascending: true });
 
   if (error) {
-    console.error("Error fetching tasks:", error);
+    logger.error("Error fetching tasks by board", error, { boardId });
     return [];
   }
 
@@ -247,7 +248,7 @@ export async function getTasksWithRelations(
   const { data: tasks, error: tasksError, count } = await query;
 
   if (tasksError) {
-    console.error("Error fetching tasks:", tasksError);
+    logger.error("Error fetching tasks with relations", tasksError, { boardId, includeArchived, pagination });
     return pagination ? { tasks: [], total: 0, hasMore: false } : [];
   }
 
@@ -425,7 +426,7 @@ export async function createTask(
     .single();
 
   if (error) {
-    console.error("Error creating task:", error);
+    logger.error("Error creating task", error, { listId, title, userId: user?.id });
     return { success: false, error: error.message };
   }
 
@@ -468,7 +469,7 @@ export async function updateTask(
     .eq("id", taskId);
 
   if (error) {
-    console.error("Error updating task:", error);
+    logger.error("Error updating task", error, { taskId, updates });
     return { success: false, error: error.message };
   }
 
@@ -512,7 +513,7 @@ export async function deleteTask(
   const { error } = await supabase.from("tasks").delete().eq("id", taskId);
 
   if (error) {
-    console.error("Error deleting task:", error);
+    logger.error("Error deleting task", error, { taskId });
     return { success: false, error: error.message };
   }
 
@@ -645,7 +646,7 @@ export async function reorderTasksInList(
   });
 
   if (error) {
-    console.error("Error reordering tasks:", error);
+    logger.error("Error reordering tasks", error, { listId, taskIdsCount: taskIds.length });
     return { success: false, error: error.message };
   }
 
@@ -677,7 +678,7 @@ export async function archiveTask(
     .eq("id", taskId);
 
   if (error) {
-    console.error("Error archiving task:", error);
+    logger.error("Error archiving task", error, { taskId });
     return { success: false, error: error.message };
   }
 
@@ -711,7 +712,7 @@ export async function unarchiveTask(
     .eq("id", taskId);
 
   if (error) {
-    console.error("Error unarchiving task:", error);
+    logger.error("Error unarchiving task", error, { taskId });
     return { success: false, error: error.message };
   }
 
@@ -765,7 +766,7 @@ export async function uncompleteTask(
     .eq("id", taskId);
 
   if (error) {
-    console.error("Error uncompleting task:", error);
+    logger.error("Error uncompleting task", error, { taskId });
     return { success: false, error: error.message };
   }
 

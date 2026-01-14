@@ -1,5 +1,3 @@
-"use server";
-
 import type { AIAction } from "@/lib/ai/prompts";
 
 /**

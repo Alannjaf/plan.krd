@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logger } from "@/lib/utils/logger";
 
 export type TaskActivity = {
   id: string;
@@ -49,7 +50,7 @@ export async function getTaskActivities(
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching task activities:", error);
+    logger.error("Error fetching task activities", error, { taskId });
     return [];
   }
 
@@ -79,7 +80,7 @@ export async function logActivity(
   });
 
   if (error) {
-    console.error("Error logging activity:", error);
+    logger.error("Error logging activity", error, { taskId, action, userId: user.id });
     return { success: false, error: error.message };
   }
 

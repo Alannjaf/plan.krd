@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { Locale } from "@/lib/i18n/locale";
+import { logger } from "@/lib/utils/logger";
 
 /**
  * Update user locale preference
@@ -26,7 +27,7 @@ export async function updateUserLocale(
     .eq("id", user.id);
 
   if (error) {
-    console.error("Error updating user locale:", error);
+    logger.error("Error updating user locale", error, { userId: user.id, locale });
     return { success: false, error: error.message };
   }
 

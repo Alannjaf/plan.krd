@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import type { TaskWithRelations, Task } from "./tasks";
+import { logger } from "@/lib/utils/logger";
 
 // Type for raw Supabase task response with nested relations
 type RawTaskAssignee = {
@@ -389,7 +390,7 @@ async function fetchCompletedTasksForWorkspace(
   );
 
   if (error) {
-    console.error("Error fetching tasks for report:", error);
+    logger.error("Error fetching tasks for report", error, { workspaceId, filters });
     return [];
   }
 
@@ -523,7 +524,7 @@ export async function generateTaskReport(params: {
     ? await fetchCompletedTasksForBoard(boardId, filters)
     : await fetchCompletedTasksForWorkspace(workspaceId!, filters);
 
-  console.log("[Report] Fetched tasks:", tasks.length, "filters:", filters);
+  logger.debug("Fetched tasks for report", { tasksCount: tasks.length, filters, boardId, workspaceId });
 
   if (tasks.length === 0) {
     // Return CSV with headers only

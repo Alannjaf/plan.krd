@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logger } from "@/lib/utils/logger";
 
 export type Attachment = {
   id: string;
@@ -25,7 +26,7 @@ export async function getAttachments(taskId: string): Promise<Attachment[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching attachments:", error);
+    logger.error("Error fetching attachments", error, { taskId });
     return [];
   }
 
@@ -61,7 +62,7 @@ export async function uploadAttachment(
     .upload(fileName, file);
 
   if (uploadError) {
-    console.error("Error uploading file:", uploadError);
+    logger.error("Error uploading file", uploadError, { taskId, fileName, fileSize: file.size, userId: user.id });
     return { success: false, error: uploadError.message };
   }
 
@@ -80,7 +81,7 @@ export async function uploadAttachment(
     .single();
 
   if (error) {
-    console.error("Error creating attachment record:", error);
+    logger.error("Error creating attachment record", error, { taskId, fileName, userId: user.id });
     // Try to clean up the uploaded file
     await supabase.storage.from("attachments").remove([fileName]);
     return { success: false, error: error.message };
@@ -123,7 +124,7 @@ export async function createAttachmentRecord(
     .single();
 
   if (error) {
-    console.error("Error creating attachment record:", error);
+    logger.error("Error creating attachment record", error, { taskId, fileName: fileInfo.file_name, userId: user.id });
     return { success: false, error: error.message };
   }
 
@@ -143,7 +144,7 @@ export async function deleteAttachment(
     .single();
 
   if (fetchError) {
-    console.error("Error fetching attachment:", fetchError);
+    logger.error("Error fetching attachment", fetchError, { attachmentId });
     return { success: false, error: fetchError.message };
   }
 
@@ -153,7 +154,7 @@ export async function deleteAttachment(
     .remove([attachment.file_path]);
 
   if (storageError) {
-    console.error("Error deleting file from storage:", storageError);
+    logger.error("Error deleting file from storage", storageError, { attachmentId, filePath: attachment.file_path });
     // Continue to delete the record anyway
   }
 
@@ -164,7 +165,7 @@ export async function deleteAttachment(
     .eq("id", attachmentId);
 
   if (error) {
-    console.error("Error deleting attachment record:", error);
+    logger.error("Error deleting attachment record", error, { attachmentId });
     return { success: false, error: error.message };
   }
 
@@ -181,7 +182,7 @@ export async function getAttachmentUrl(
     .createSignedUrl(filePath, 3600); // 1 hour expiry
 
   if (error) {
-    console.error("Error getting signed URL:", error);
+    logger.error("Error getting signed URL", error, { filePath });
     return { url: null, error: error.message };
   }
 

@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/utils/logger";
 
 export type Workspace = {
   id: string;
@@ -49,7 +50,7 @@ export async function getWorkspaces(): Promise<WorkspaceWithMeta[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching workspaces:", error);
+    logger.error("Error fetching workspaces", error, { userId: user.id });
     return [];
   }
 
@@ -95,7 +96,7 @@ export async function getWorkspace(workspaceId: string): Promise<Workspace | nul
     .single();
 
   if (error) {
-    console.error("Error fetching workspace:", error);
+    logger.error("Error fetching workspace", error, { workspaceId });
     return null;
   }
 
@@ -138,7 +139,7 @@ export async function createWorkspace(
     .single();
 
   if (error) {
-    console.error("Error creating workspace:", error);
+    logger.error("Error creating workspace", error, { name, userId: user.id });
     return { success: false, error: error.message };
   }
 
@@ -178,7 +179,7 @@ export async function deleteWorkspace(
     .eq("id", workspaceId);
 
   if (error) {
-    console.error("Error deleting workspace:", error);
+    logger.error("Error deleting workspace", error, { workspaceId });
     return { success: false, error: error.message };
   }
 
@@ -198,7 +199,7 @@ export async function getWorkspaceMembers(
     .order("joined_at", { ascending: true });
 
   if (error) {
-    console.error("Error fetching workspace members:", error);
+    logger.error("Error fetching workspace members", error, { workspaceId });
     return [];
   }
 
@@ -218,7 +219,7 @@ export async function removeMember(
     .eq("user_id", userId);
 
   if (error) {
-    console.error("Error removing member:", error);
+    logger.error("Error removing member", error, { workspaceId, userId });
     return { success: false, error: error.message };
   }
 

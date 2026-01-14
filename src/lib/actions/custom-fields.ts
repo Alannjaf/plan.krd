@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logger } from "@/lib/utils/logger";
 
 export type CustomField = {
   id: string;
@@ -37,7 +38,7 @@ export async function getCustomFields(boardId: string): Promise<CustomField[]> {
     .order("position", { ascending: true });
 
   if (error) {
-    console.error("Error fetching custom fields:", error);
+    logger.error("Error fetching custom fields", error, { boardId });
     return [];
   }
 
@@ -56,7 +57,7 @@ export async function getCustomFieldValues(
     .eq("task_id", taskId);
 
   if (error) {
-    console.error("Error fetching custom field values:", error);
+    logger.error("Error fetching custom field values", error, { taskId });
     return [];
   }
 
@@ -117,7 +118,7 @@ export async function createCustomField(
     .single();
 
   if (error) {
-    console.error("Error creating custom field:", error);
+    logger.error("Error creating custom field", error, { boardId, fieldType: data.field_type, name: data.name });
     return { success: false, error: error.message };
   }
 
@@ -142,7 +143,7 @@ export async function updateCustomField(
     .eq("id", fieldId);
 
   if (error) {
-    console.error("Error updating custom field:", error);
+    logger.error("Error updating custom field", error, { fieldId });
     return { success: false, error: error.message };
   }
 
@@ -185,7 +186,7 @@ export async function setCustomFieldValue(
       .eq("field_id", fieldId);
 
     if (error) {
-      console.error("Error deleting custom field value:", error);
+      logger.error("Error deleting custom field value", error, { taskId, fieldId });
       return { success: false, error: error.message };
     }
   } else {
@@ -228,7 +229,7 @@ export async function reorderCustomFields(
   const error = results.find((r) => r.error);
 
   if (error?.error) {
-    console.error("Error reordering custom fields:", error.error);
+    logger.error("Error reordering custom fields", error.error, { boardId, fieldIdsCount: fieldIds.length });
     return { success: false, error: error.error.message };
   }
 

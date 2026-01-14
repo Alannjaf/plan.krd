@@ -5,6 +5,7 @@ import type { AIAction } from "./utils";
 import { createTask, updateTask, deleteTask, moveTask, completeTask, uncompleteTask } from "../tasks";
 import { addAssignee, removeAssignee } from "../assignees";
 import { addLabelToTask, removeLabelFromTask } from "../labels";
+import { logger } from "@/lib/utils/logger";
 
 /**
  * Execute an AI action and return a human-readable response
@@ -160,7 +161,7 @@ export async function executeAIAction(
         return { success: false, message: "❌ Unknown action type" };
     }
   } catch (error) {
-    console.error("[AI Action] Error executing action:", error);
+    logger.error("Error executing AI action", error, { action: action.action, params: action.params });
     const errorMessage = (error instanceof Error ? error.message : "An unexpected error occurred");
     return { success: false, message: `❌ ${translateError(errorMessage, action.action)}` };
   }

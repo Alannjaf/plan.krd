@@ -4,6 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { logActivity } from "./activities";
 import { createNotification } from "./notifications";
 import { extractMentions } from "@/lib/utils/mentions";
+import { logger } from "@/lib/utils/logger";
+import { updateCommentSchema } from "@/lib/validations/comments";
+import { z } from "zod";
 
 export type Comment = {
   id: string;
@@ -38,7 +41,7 @@ export async function getComments(taskId: string): Promise<Comment[]> {
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Error fetching comments:", error);
+    logger.error("Error fetching comments", error, { taskId });
     return [];
   }
 
@@ -101,7 +104,7 @@ export async function createComment(
 
   // Log activity (non-blocking)
   logActivity(taskId, "comment_added", {}).catch((err) => {
-    console.error("Error logging activity:", err);
+    logger.error("Error logging activity", err, { taskId, userId: user.id });
   });
 
   // Process mentions asynchronously (don't block comment creation)
@@ -182,7 +185,7 @@ export async function createComment(
 
         await Promise.all(notificationPromises);
       } catch (error) {
-        console.error("Error processing mentions:", error);
+        logger.error("Error processing mentions", error, { taskId, userId: user.id, mentionsCount: mentions.length });
         // Don't throw - mentions are non-critical
       }
     })();
@@ -197,15 +200,58 @@ export async function updateComment(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
+  // Validate input
+  const validation = updateCommentSchema.safeParse({ commentId, content });
+  if (!validation.success) {
+    return {
+      success: false,
+      error: validation.error.issues[0].message,
+    };
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  // Verify comment exists and user owns it
+  const { data: comment, error: fetchError } = await supabase
+    .from("comments")
+    .select("user_id, task_id")
+    .eq("id", commentId)
+    .single();
+
+  if (fetchError || !comment) {
+    return { success: false, error: "Comment not found" };
+  }
+
+  if (comment.user_id !== user.id) {
+    return {
+      success: false,
+      error: "You don't have permission to edit this comment",
+    };
+  }
+
   const { error } = await supabase
     .from("comments")
     .update({ content, updated_at: new Date().toISOString() })
     .eq("id", commentId);
 
   if (error) {
-    console.error("Error updating comment:", error);
+    logger.error("Error updating comment", error, { commentId, userId: user.id, taskId: comment.task_id });
     return { success: false, error: error.message };
   }
+
+  // Log activity
+  logActivity(comment.task_id, "description_changed", {
+    commentId,
+    content: content.slice(0, 100), // Truncate for activity log
+  }).catch((err) => {
+    logger.error("Error logging activity", err, { taskId: comment.task_id, userId: user.id });
+  });
 
   return { success: true };
 }
@@ -215,12 +261,48 @@ export async function deleteComment(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
+  // Validate UUID format
+  const uuidSchema = z.string().uuid("Invalid comment ID");
+  const validation = uuidSchema.safeParse(commentId);
+  if (!validation.success) {
+    return { success: false, error: "Invalid comment ID" };
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  // Verify comment exists and user owns it
+  const { data: comment, error: fetchError } = await supabase
+    .from("comments")
+    .select("user_id, task_id")
+    .eq("id", commentId)
+    .single();
+
+  if (fetchError || !comment) {
+    return { success: false, error: "Comment not found" };
+  }
+
+  if (comment.user_id !== user.id) {
+    return {
+      success: false,
+      error: "You don't have permission to delete this comment",
+    };
+  }
+
   const { error } = await supabase.from("comments").delete().eq("id", commentId);
 
   if (error) {
-    console.error("Error deleting comment:", error);
+    logger.error("Error deleting comment", error, { commentId, userId: user.id, taskId: comment.task_id });
     return { success: false, error: error.message };
   }
+
+  // Note: Activity logging for comment deletion would require a new activity type
+  // For now, we skip it as the plan notes this may need schema changes
 
   return { success: true };
 }

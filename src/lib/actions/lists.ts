@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/utils/logger";
 
 export type List = {
   id: string;
@@ -56,7 +57,7 @@ export async function createList(
     .single();
 
   if (error) {
-    console.error("Error creating list:", error);
+    logger.error("Error creating list", error, { boardId, name });
     return { success: false, error: error.message };
   }
 
@@ -101,7 +102,7 @@ export async function deleteList(
   const { error } = await supabase.from("lists").delete().eq("id", listId);
 
   if (error) {
-    console.error("Error deleting list:", error);
+    logger.error("Error deleting list", error, { listId });
     return { success: false, error: error.message };
   }
 
@@ -127,7 +128,7 @@ export async function reorderLists(
       .eq("id", update.id);
 
     if (error) {
-      console.error("Error reordering lists:", error);
+      logger.error("Error reordering lists", error, { boardId, listIdsCount: listIds.length });
       return { success: false, error: error.message };
     }
   }

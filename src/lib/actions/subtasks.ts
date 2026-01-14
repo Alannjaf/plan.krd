@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { logger } from "@/lib/utils/logger";
 
 export type Subtask = {
   id: string;
@@ -33,7 +34,7 @@ export async function getSubtasks(taskId: string): Promise<Subtask[]> {
     .order("position", { ascending: true });
 
   if (error) {
-    console.error("Error fetching subtasks:", error);
+    logger.error("Error fetching subtasks", error, { taskId });
     return [];
   }
 
@@ -88,7 +89,7 @@ export async function createSubtask(
     .single();
 
   if (error) {
-    console.error("Error creating subtask:", error);
+    logger.error("Error creating subtask", error, { taskId, title });
     return { success: false, error: error.message };
   }
 
@@ -127,7 +128,7 @@ export async function deleteSubtask(
   const { error } = await supabase.from("subtasks").delete().eq("id", subtaskId);
 
   if (error) {
-    console.error("Error deleting subtask:", error);
+    logger.error("Error deleting subtask", error, { subtaskId });
     return { success: false, error: error.message };
   }
 
@@ -156,7 +157,7 @@ export async function reorderSubtasks(
   const error = results.find((r) => r.error);
 
   if (error?.error) {
-    console.error("Error reordering subtasks:", error.error);
+    logger.error("Error reordering subtasks", error.error, { taskId, subtaskIdsCount: subtaskIds.length });
     return { success: false, error: error.error.message };
   }
 

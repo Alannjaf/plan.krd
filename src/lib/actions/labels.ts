@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/utils/logger";
 
 export type Label = {
   id: string;
@@ -21,7 +22,7 @@ export async function getLabels(boardId: string): Promise<Label[]> {
     .order("name", { ascending: true });
 
   if (error) {
-    console.error("Error fetching labels:", error);
+    logger.error("Error fetching labels", error, { boardId });
     return [];
   }
 
@@ -42,7 +43,7 @@ export async function createLabel(
     .single();
 
   if (error) {
-    console.error("Error creating label:", error);
+    logger.error("Error creating label", error, { boardId, name, color });
     return { success: false, error: error.message };
   }
 
@@ -76,7 +77,7 @@ export async function deleteLabel(
   const { error } = await supabase.from("labels").delete().eq("id", labelId);
 
   if (error) {
-    console.error("Error deleting label:", error);
+    logger.error("Error deleting label", error, { labelId });
     return { success: false, error: error.message };
   }
 
@@ -92,7 +93,7 @@ export async function getTaskLabels(taskId: string): Promise<Label[]> {
     .eq("task_id", taskId);
 
   if (error) {
-    console.error("Error fetching task labels:", error);
+    logger.error("Error fetching task labels", error, { taskId });
     return [];
   }
 
@@ -130,7 +131,7 @@ export async function removeLabelFromTask(
     .eq("label_id", labelId);
 
   if (error) {
-    console.error("Error removing label from task:", error);
+    logger.error("Error removing label from task", error, { taskId, labelId });
     return { success: false, error: error.message };
   }
 

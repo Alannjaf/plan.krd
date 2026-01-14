@@ -6,6 +6,7 @@ import {
   parseJsonResponse,
   type Message,
 } from "@/lib/ai/openrouter";
+import { logger } from "@/lib/utils/logger";
 import {
   SYSTEM_PROMPTS,
   buildChatContext,
@@ -23,6 +24,7 @@ import { createTask, updateTask, deleteTask, moveTask, completeTask, uncompleteT
 import { addAssignee, removeAssignee } from "./assignees";
 import { addLabelToTask, removeLabelFromTask } from "./labels";
 import { generateTaskReport } from "./reports";
+import { translateError } from "./ai/utils";
 
 export type ChatMessage = {
   role: "user" | "assistant";
@@ -93,57 +95,6 @@ export type BoardGuidelines = {
     version: number;
   };
 };
-
-/**
- * Translate database/technical errors into user-friendly messages
- */
-function translateError(error: string, actionType: string): string {
-  const errorLower = error.toLowerCase();
-  
-  // Duplicate key / already exists errors
-  if (errorLower.includes("duplicate") || errorLower.includes("already exists") || errorLower.includes("unique constraint")) {
-    switch (actionType) {
-      case "ADD_ASSIGNEE":
-        return "This user is already assigned to the task";
-      case "ADD_LABEL":
-        return "This label is already on the task";
-      case "CREATE_TASK":
-        return "A task with this name already exists";
-      default:
-        return "This item already exists";
-    }
-  }
-  
-  // Not found errors
-  if (errorLower.includes("not found") || errorLower.includes("no rows") || errorLower.includes("does not exist")) {
-    switch (actionType) {
-      case "REMOVE_ASSIGNEE":
-        return "This user is not assigned to the task";
-      case "REMOVE_LABEL":
-        return "This label is not on the task";
-      case "UPDATE_TASK":
-      case "DELETE_TASK":
-      case "MOVE_TASK":
-      case "COMPLETE_TASK":
-        return "Task not found - it may have been deleted";
-      default:
-        return "The item was not found";
-    }
-  }
-  
-  // Permission errors
-  if (errorLower.includes("permission") || errorLower.includes("unauthorized") || errorLower.includes("forbidden")) {
-    return "You don't have permission to perform this action";
-  }
-  
-  // Validation errors
-  if (errorLower.includes("invalid") || errorLower.includes("required")) {
-    return "Invalid input - please check your request";
-  }
-  
-  // Return original error if no translation found
-  return error;
-}
 
 /**
  * Execute an AI action and return a human-readable response
@@ -299,7 +250,7 @@ async function executeAIAction(
         return { success: false, message: "❌ Unknown action type" };
     }
   } catch (error) {
-    console.error("[AI Action] Error executing action:", error);
+    logger.error("Error executing AI action", error, { action: action.action, params: action.params });
     const errorMessage = (error as Error).message || "An unexpected error occurred";
     return { success: false, message: `❌ ${translateError(errorMessage, action.action)}` };
   }
@@ -517,7 +468,7 @@ export async function chatWithAssistant(
   const contextString = buildChatContext(contextData);
   
   // Debug logging
-  console.log("[AI Chat] Context:", {
+  logger.debug("AI chat context", {
     boardId: context.boardId,
     workspaceId: context.workspaceId,
     taskCount: contextData.tasks?.length ?? 0,
@@ -551,7 +502,7 @@ export async function chatWithAssistant(
   const reportRequest = parseReportRequest(result.content || "");
   
   if (reportRequest) {
-    console.log("[AI Chat] Report request detected:", reportRequest);
+    logger.debug("Report request detected in AI chat", { reportRequest, context });
     
     // Generate the report
     const reportResult = await generateTaskReport({
@@ -594,7 +545,7 @@ export async function chatWithAssistant(
   const actions = parseAIActions(result.content || "");
   
   if (actions.length > 0) {
-    console.log(`[AI Chat] ${actions.length} action(s) detected:`, actions);
+    logger.debug("AI actions detected in chat", { actionsCount: actions.length, actions, context });
     
     // Execute all actions sequentially
     const results = await Promise.all(
@@ -1389,7 +1340,7 @@ export async function extractPdfContent(
       return { success: false, error: result.error || "Failed to extract document content" };
     }
   } catch (err) {
-    console.error("PDF extraction error:", err);
+    logger.error("PDF extraction error", err, { filePath });
     return { success: false, error: "Failed to process PDF document" };
   }
 }

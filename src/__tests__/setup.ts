@@ -1,13 +1,19 @@
 import "@testing-library/jest-dom";
-import { expect, afterEach, vi } from "vitest";
+import { expect, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
 import * as matchers from "@testing-library/jest-dom/matchers";
 
 // Extend Vitest's expect with jest-dom matchers
 expect.extend(matchers);
 
-// Cleanup after each test
-afterEach(() => {
+// Cleanup after each test (afterEach is available globally with globals: true)
+// Using global afterEach
+declare global {
+  // eslint-disable-next-line no-var
+  var afterEach: (fn: () => void) => void;
+}
+
+global.afterEach(() => {
   cleanup();
 });
 

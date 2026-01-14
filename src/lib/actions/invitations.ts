@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/utils/logger";
 
 export type WorkspaceInvitation = {
   id: string;
@@ -73,7 +74,7 @@ export async function inviteMember(
     .single();
 
   if (error) {
-    console.error("Error creating invitation:", error);
+    logger.error("Error creating invitation", error, { workspaceId, email, role, invitedBy: user.id });
     return { success: false, error: error.message };
   }
 
@@ -133,7 +134,7 @@ export async function acceptInvitation(
       // Unique violation
       return { success: false, error: "You are already a member of this workspace" };
     }
-    console.error("Error adding member:", memberError);
+    logger.error("Error adding member", memberError, { workspaceId: invitation.workspace_id, userId: user.id, role: invitation.role });
     return { success: false, error: memberError.message };
   }
 
@@ -144,7 +145,7 @@ export async function acceptInvitation(
     .eq("id", invitation.id);
 
   if (updateError) {
-    console.error("Error updating invitation:", updateError);
+    logger.error("Error updating invitation", updateError, { invitationId: invitation.id });
   }
 
   revalidatePath(`/${invitation.workspace_id}`);
@@ -162,7 +163,7 @@ export async function revokeInvitation(
     .eq("id", invitationId);
 
   if (error) {
-    console.error("Error revoking invitation:", error);
+    logger.error("Error revoking invitation", error, { invitationId });
     return { success: false, error: error.message };
   }
 
@@ -204,7 +205,7 @@ export async function getInvitationByToken(
     .single();
 
   if (error || !invitation) {
-    console.error("Error fetching invitation by token:", error);
+    logger.error("Error fetching invitation by token", error, { token });
     return { invitation: null, workspace: null };
   }
 
@@ -212,7 +213,7 @@ export async function getInvitationByToken(
 
   // If workspace is null (RLS issue or deleted workspace), return null
   if (!workspace) {
-    console.error("Workspace not found for invitation");
+    logger.error("Workspace not found for invitation", undefined, { token, invitationId: invitation.id });
     return { invitation: null, workspace: null };
   }
 

@@ -2,6 +2,24 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/utils/logger";
+
+/**
+ * Verify user has access to workspace
+ */
+async function verifyWorkspaceAccess(
+  workspaceId: string,
+  userId: string
+): Promise<boolean> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("workspace_members")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .single();
+  return !!data;
+}
 
 export type Board = {
   id: string;
@@ -33,7 +51,7 @@ export async function getBoards(workspaceId: string, includeArchived: boolean = 
   const { data, error } = await query;
 
   if (error) {
-    console.error("Error fetching boards:", error);
+    logger.error("Error fetching boards", error, { workspaceId, includeArchived });
     return [];
   }
 
@@ -50,7 +68,7 @@ export async function getBoard(boardId: string): Promise<Board | null> {
     .single();
 
   if (error) {
-    console.error("Error fetching board:", error);
+    logger.error("Error fetching board", error, { boardId });
     return null;
   }
 
@@ -87,7 +105,7 @@ export async function createBoard(
     .single();
 
   if (error) {
-    console.error("Error creating board:", error);
+    logger.error("Error creating board", error, { workspaceId, name });
     return { success: false, error: error.message };
   }
 
@@ -101,6 +119,14 @@ export async function updateBoard(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
   const { data: board, error: fetchError } = await supabase
     .from("boards")
     .select("workspace_id")
@@ -111,13 +137,18 @@ export async function updateBoard(
     return { success: false, error: fetchError.message };
   }
 
+  const hasAccess = await verifyWorkspaceAccess(board.workspace_id, user.id);
+  if (!hasAccess) {
+    return { success: false, error: "You don't have access to this workspace" };
+  }
+
   const { error } = await supabase
     .from("boards")
     .update(updates)
     .eq("id", boardId);
 
   if (error) {
-    console.error("Error updating board:", error);
+    logger.error("Error updating board", error, { boardId, workspaceId: board.workspace_id, userId: user.id });
     return { success: false, error: error.message };
   }
 
@@ -131,6 +162,14 @@ export async function deleteBoard(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
   const { data: board, error: fetchError } = await supabase
     .from("boards")
     .select("workspace_id")
@@ -141,10 +180,15 @@ export async function deleteBoard(
     return { success: false, error: fetchError.message };
   }
 
+  const hasAccess = await verifyWorkspaceAccess(board.workspace_id, user.id);
+  if (!hasAccess) {
+    return { success: false, error: "You don't have access to this workspace" };
+  }
+
   const { error } = await supabase.from("boards").delete().eq("id", boardId);
 
   if (error) {
-    console.error("Error deleting board:", error);
+    logger.error("Error deleting board", error, { boardId, workspaceId: board.workspace_id, userId: user.id });
     return { success: false, error: error.message };
   }
 
@@ -157,6 +201,14 @@ export async function archiveBoard(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
   const { data: board, error: fetchError } = await supabase
     .from("boards")
     .select("workspace_id")
@@ -167,15 +219,23 @@ export async function archiveBoard(
     return { success: false, error: fetchError.message };
   }
 
+  const hasAccess = await verifyWorkspaceAccess(board.workspace_id, user.id);
+  if (!hasAccess) {
+    return { success: false, error: "You don't have access to this workspace" };
+  }
+
   const { error } = await supabase
     .from("boards")
     .update({ archived: true, archived_at: new Date().toISOString() })
     .eq("id", boardId);
 
   if (error) {
-    console.error("Error archiving board:", error);
+    logger.error("Error archiving board", error, { boardId, workspaceId: board.workspace_id, userId: user.id });
     return { success: false, error: error.message };
   }
+
+  // Note: Board activity logging would require a board_activities table or extending task_activities
+  // For now, we skip it as the plan notes this may need schema changes
 
   revalidatePath(`/${board.workspace_id}`);
   return { success: true };
@@ -186,6 +246,14 @@ export async function unarchiveBoard(
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
   const { data: board, error: fetchError } = await supabase
     .from("boards")
     .select("workspace_id")
@@ -196,15 +264,23 @@ export async function unarchiveBoard(
     return { success: false, error: fetchError.message };
   }
 
+  const hasAccess = await verifyWorkspaceAccess(board.workspace_id, user.id);
+  if (!hasAccess) {
+    return { success: false, error: "You don't have access to this workspace" };
+  }
+
   const { error } = await supabase
     .from("boards")
     .update({ archived: false, archived_at: null })
     .eq("id", boardId);
 
   if (error) {
-    console.error("Error unarchiving board:", error);
+    logger.error("Error unarchiving board", error, { boardId, workspaceId: board.workspace_id, userId: user.id });
     return { success: false, error: error.message };
   }
+
+  // Note: Board activity logging would require a board_activities table or extending task_activities
+  // For now, we skip it as the plan notes this may need schema changes
 
   revalidatePath(`/${board.workspace_id}`);
   return { success: true };
@@ -243,7 +319,7 @@ export async function generatePublicToken(
     .single();
 
   if (error) {
-    console.error("Error generating public token:", error);
+    logger.error("Error generating public token", error, { boardId });
     return { success: false, error: error.message };
   }
 
@@ -279,7 +355,7 @@ export async function revokePublicToken(
     .eq("id", boardId);
 
   if (error) {
-    console.error("Error revoking public token:", error);
+    logger.error("Error revoking public token", error, { boardId });
     return { success: false, error: error.message };
   }
 
@@ -303,7 +379,7 @@ export async function getPublicBoard(
     .single();
 
   if (error) {
-    console.error("Error fetching public board:", error);
+    logger.error("Error fetching public board", error, { token });
     return { success: false, error: error.message };
   }
 
@@ -329,7 +405,7 @@ export async function isPublicBoard(
     .single();
 
   if (error) {
-    console.error("Error checking public board status:", error);
+    logger.error("Error checking public board status", error, { boardId });
     return { success: false, error: error.message };
   }
 

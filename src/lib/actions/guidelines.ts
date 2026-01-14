@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import type { BoardGuidelines } from "./ai";
+import { logger } from "@/lib/utils/logger";
 
 /**
  * Get AI guidelines for a board
@@ -22,7 +23,7 @@ export async function getBoardGuidelines(
     if (error.code === "PGRST116") {
       return { success: false };
     }
-    console.error("Error fetching board guidelines:", error);
+    logger.error("Error fetching board guidelines", error, { boardId });
     return { success: false, error: error.message };
   }
 
@@ -55,7 +56,7 @@ export async function refreshBoardGuidelines(
   });
 
   if (error) {
-    console.error("Error refreshing board guidelines:", error);
+    logger.error("Error refreshing board guidelines", error, { boardId });
     return { success: false, error: error.message };
   }
 

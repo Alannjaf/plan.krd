@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createNotification } from "./notifications";
+import { logger } from "@/lib/utils/logger";
 
 export type Assignee = {
   id: string;
@@ -26,7 +27,7 @@ export async function getTaskAssignees(taskId: string): Promise<Assignee[]> {
     .eq("task_id", taskId);
 
   if (error) {
-    console.error("Error fetching task assignees:", error);
+    logger.error("Error fetching task assignees", error, { taskId });
     return [];
   }
 
@@ -50,7 +51,7 @@ export async function addAssignee(
   });
 
   if (error) {
-    console.error("Error adding assignee:", error);
+    logger.error("Error adding assignee", error, { taskId, userId, assignedBy: user?.id });
     return { success: false, error: error.message };
   }
 
@@ -104,7 +105,7 @@ export async function removeAssignee(
     .eq("user_id", userId);
 
   if (error) {
-    console.error("Error removing assignee:", error);
+    logger.error("Error removing assignee", error, { taskId, userId });
     return { success: false, error: error.message };
   }
 
@@ -120,7 +121,7 @@ export async function getWorkspaceMembers(workspaceId: string) {
     .eq("workspace_id", workspaceId);
 
   if (error) {
-    console.error("Error fetching workspace members:", error);
+    logger.error("Error fetching workspace members", error, { workspaceId });
     return [];
   }
 

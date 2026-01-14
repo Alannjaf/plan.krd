@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { logger } from "@/lib/utils/logger";
 
 export type Notification = {
   id: string;
@@ -37,7 +38,7 @@ export async function getNotifications(limit: number = 20): Promise<Notification
     .limit(limit);
 
   if (error) {
-    console.error("Error fetching notifications:", error);
+    logger.error("Error fetching notifications", error, { userId: user.id, limit });
     return [];
   }
 
@@ -96,7 +97,7 @@ export async function markAsRead(notificationId: string): Promise<{ success: boo
     .eq("id", notificationId);
 
   if (error) {
-    console.error("Error marking notification as read:", error);
+    logger.error("Error marking notification as read", error, { notificationId });
     return { success: false };
   }
 
@@ -117,7 +118,7 @@ export async function markAllAsRead(): Promise<{ success: boolean }> {
     .eq("read", false);
 
   if (error) {
-    console.error("Error marking all as read:", error);
+    logger.error("Error marking all as read", error, { userId: user.id });
     return { success: false };
   }
 
@@ -134,7 +135,7 @@ export async function deleteNotification(notificationId: string): Promise<{ succ
     .eq("id", notificationId);
 
   if (error) {
-    console.error("Error deleting notification:", error);
+    logger.error("Error deleting notification", error, { notificationId });
     return { success: false };
   }
 
@@ -177,7 +178,7 @@ export async function createNotification({
     });
 
   if (error) {
-    console.error("Error creating notification:", error);
+    logger.error("Error creating notification", error, { userId, type, taskId, workspaceId, boardId, actorId });
     return { success: false };
   }
 
