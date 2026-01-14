@@ -59,10 +59,9 @@ function KanbanCardComponent({ task, index, onClick }: KanbanCardProps) {
 
   const formattedDueDate = useMemo(() => {
     if (!task.due_date) return null;
-    return new Date(task.due_date).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    });
+    const date = new Date(task.due_date);
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${monthNames[date.getMonth()]} ${date.getDate()}`;
   }, [task.due_date]);
 
   const handleCompletionToggle = async (checked: CheckboxPrimitive.CheckedState) => {
@@ -155,7 +154,6 @@ function KanbanCardComponent({ task, index, onClick }: KanbanCardProps) {
 
               {task.due_date && !task.completed && formattedDueDate && (
                 <span
-                  suppressHydrationWarning
                   className={cn(
                     "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs",
                     isOverdue
