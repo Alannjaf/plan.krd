@@ -3,6 +3,9 @@
 import { createClient } from "@/lib/supabase/server";
 import type { TaskWithRelations, Task } from "./tasks";
 import { logger } from "@/lib/utils/logger";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 // Type for raw Supabase task response with nested relations
 type RawTaskAssignee = {
@@ -697,4 +700,295 @@ export async function generateTaskReport(params: {
   const csvWithBom = "\uFEFF" + csvContent;
 
   return { success: true, csv: csvWithBom };
+}
+
+/**
+ * Generate Excel report for tasks
+ */
+export async function generateExcelReport(params: {
+  boardId?: string;
+  workspaceId?: string;
+  filters?: ReportFilters;
+  fields?: ReportFieldSelection;
+}): Promise<{ success: boolean; buffer?: Buffer; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const { boardId, workspaceId, filters = {}, fields = "all" } = params;
+
+  if (!boardId && !workspaceId) {
+    return { success: false, error: "Either boardId or workspaceId must be provided" };
+  }
+
+  // Fetch tasks using existing function
+  const tasks = boardId
+    ? await fetchCompletedTasksForBoard(boardId, filters)
+    : await fetchCompletedTasksForWorkspace(workspaceId!, filters);
+
+  if (tasks.length === 0) {
+    return { success: false, error: "No tasks found" };
+  }
+
+  try {
+    // Get custom fields
+    let allCustomFields: Array<{ id: string; name: string; position: number }> = [];
+    if (boardId) {
+      const { data: customFields } = await supabase
+        .from("custom_fields")
+        .select("id, name, position")
+        .eq("board_id", boardId)
+        .order("position");
+
+      if (customFields) {
+        allCustomFields = customFields;
+      }
+    }
+
+    // Get list names
+    const listIds = Array.from(new Set(tasks.map((t) => t.list_id)));
+    const { data: allLists } = await supabase
+      .from("lists")
+      .select("id, name")
+      .in("id", listIds);
+
+    const listNameMap = new Map<string, string>();
+    if (allLists) {
+      allLists.forEach((list) => {
+        listNameMap.set(list.id, list.name);
+      });
+    }
+
+    // Prepare data for Excel
+    const standardHeaders = [
+      "Title",
+      "Description",
+      "Priority",
+      "Due Date",
+      "Start Date",
+      "Completed At",
+      "Status/List",
+      "Assignees",
+      "Labels",
+      "Subtasks",
+      "Subtask Deadlines",
+      "Subtask Assignees",
+    ];
+
+    const customFieldHeaders = allCustomFields.map((cf) => cf.name);
+    const headers = [...standardHeaders, ...customFieldHeaders];
+
+    const rows = tasks.map((task) => {
+      const listName = listNameMap.get(task.list_id) || "Unknown";
+      const assigneeNames = (task.assignees || [])
+        .map((a) => a.profiles?.full_name || a.profiles?.email || "Unknown")
+        .join(", ");
+      const labelNames = (task.labels || [])
+        .map((l) => l.labels?.name || "")
+        .filter((n) => n)
+        .join(", ");
+      const subtaskTitles = (task.subtasks || [])
+        .map((st) => st.title || "")
+        .filter((t) => t)
+        .join(", ");
+      const subtaskDeadlines = (task.subtasks || [])
+        .map((st) => st.due_date || "")
+        .join(", ");
+      const subtaskAssignees = (task.subtasks || [])
+        .map((st) => {
+          if (st.assignee) {
+            return st.assignee.full_name || st.assignee.email || "Unknown";
+          }
+          return "";
+        })
+        .filter((a) => a)
+        .join(", ");
+
+      const customFieldValuesMap = new Map<string, string>();
+      (task.custom_field_values || []).forEach((cfv) => {
+        if (cfv.custom_field) {
+          customFieldValuesMap.set(cfv.custom_field.id, cfv.value || "");
+        }
+      });
+
+      const cleanDescription = stripHtmlTags(task.description);
+
+      return [
+        task.title,
+        cleanDescription,
+        task.priority || "",
+        task.due_date || "",
+        task.start_date || "",
+        task.completed_at || "",
+        listName,
+        assigneeNames,
+        labelNames,
+        subtaskTitles,
+        subtaskDeadlines,
+        subtaskAssignees,
+        ...allCustomFields.map((cf) => customFieldValuesMap.get(cf.id) || ""),
+      ];
+    });
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+
+    // Create worksheet
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+
+    // Set column widths
+    const colWidths = headers.map((header, idx) => {
+      const maxLength = Math.max(
+        header.length,
+        ...rows.map((row) => String(row[idx] || "").length)
+      );
+      return { wch: Math.min(maxLength + 2, 50) };
+    });
+    ws["!cols"] = colWidths;
+
+    // Add worksheet to workbook
+    XLSX.utils.book_append_sheet(wb, ws, "Tasks");
+
+    // Generate buffer
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+    return { success: true, buffer: Buffer.from(buffer) };
+  } catch (error) {
+    logger.error("Error generating Excel report", error, params);
+    return { success: false, error: "Failed to generate Excel report" };
+  }
+}
+
+/**
+ * Generate PDF report for tasks
+ */
+export async function generatePDFReport(params: {
+  boardId?: string;
+  workspaceId?: string;
+  filters?: ReportFilters;
+  fields?: ReportFieldSelection;
+  workspaceName?: string;
+  boardName?: string;
+}): Promise<{ success: boolean; buffer?: Buffer; error?: string }> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const { boardId, workspaceId, filters = {}, fields = "all", workspaceName, boardName } = params;
+
+  if (!boardId && !workspaceId) {
+    return { success: false, error: "Either boardId or workspaceId must be provided" };
+  }
+
+  // Fetch tasks using existing function
+  const tasks = boardId
+    ? await fetchCompletedTasksForBoard(boardId, filters)
+    : await fetchCompletedTasksForWorkspace(workspaceId!, filters);
+
+  try {
+    // Get custom fields
+    let allCustomFields: Array<{ id: string; name: string; position: number }> = [];
+    if (boardId) {
+      const { data: customFields } = await supabase
+        .from("custom_fields")
+        .select("id, name, position")
+        .eq("board_id", boardId)
+        .order("position");
+
+      if (customFields) {
+        allCustomFields = customFields;
+      }
+    }
+
+    // Get list names
+    const listIds = Array.from(new Set(tasks.map((t) => t.list_id)));
+    const { data: allLists } = await supabase
+      .from("lists")
+      .select("id, name")
+      .in("id", listIds);
+
+    const listNameMap = new Map<string, string>();
+    if (allLists) {
+      allLists.forEach((list) => {
+        listNameMap.set(list.id, list.name);
+      });
+    }
+
+    // Create PDF
+    const doc = new jsPDF();
+
+    // Add header
+    doc.setFontSize(18);
+    doc.text("Task Report", 14, 20);
+    doc.setFontSize(12);
+    if (workspaceName) {
+      doc.text(`Workspace: ${workspaceName}`, 14, 30);
+    }
+    if (boardName) {
+      doc.text(`Board: ${boardName}`, 14, workspaceName ? 36 : 30);
+    }
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, workspaceName || boardName ? 42 : 36);
+
+    // Prepare table data
+    const standardHeaders = [
+      "Title",
+      "Priority",
+      "Due Date",
+      "Status",
+      "Assignees",
+    ];
+
+    const tableData = tasks.slice(0, 50).map((task) => {
+      const listName = listNameMap.get(task.list_id) || "Unknown";
+      const assigneeNames = (task.assignees || [])
+        .map((a) => a.profiles?.full_name || a.profiles?.email || "Unknown")
+        .slice(0, 2)
+        .join(", ");
+      const assignees = assigneeNames || "Unassigned";
+
+      return [
+        task.title.substring(0, 40),
+        task.priority || "none",
+        task.due_date ? new Date(task.due_date).toLocaleDateString() : "",
+        listName,
+        assignees,
+      ];
+    });
+
+    // Add table
+    autoTable(doc, {
+      head: [standardHeaders],
+      body: tableData,
+      startY: (workspaceName || boardName) ? 50 : 44,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [66, 139, 202] },
+      alternateRowStyles: { fillColor: [245, 245, 245] },
+    });
+
+    // If there are more tasks, add a note
+    if (tasks.length > 50) {
+      doc.setFontSize(10);
+      doc.text(`Note: Showing first 50 of ${tasks.length} tasks`, 14, (doc as any).lastAutoTable.finalY + 10);
+    }
+
+    // Generate buffer
+    const buffer = Buffer.from(doc.output("arraybuffer"));
+
+    return { success: true, buffer };
+  } catch (error) {
+    logger.error("Error generating PDF report", error, params);
+    return { success: false, error: "Failed to generate PDF report" };
+  }
 }

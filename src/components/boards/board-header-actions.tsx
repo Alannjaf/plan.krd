@@ -15,12 +15,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Pencil, Trash2, Settings2, Archive, RotateCcw, Loader2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, Settings2, Archive, RotateCcw, Loader2, BarChart3 } from "lucide-react";
 import { archiveBoard, unarchiveBoard, type Board } from "@/lib/actions/boards";
 import { EditBoardDialog } from "./edit-board-dialog";
 import { DeleteBoardDialog } from "./delete-board-dialog";
 import { CustomFieldsSettings } from "./custom-fields-settings";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 interface BoardHeaderActionsProps {
   board: Board;
@@ -59,6 +60,13 @@ export function BoardHeaderActions({ board, workspaceId }: BoardHeaderActionsPro
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link href={`/${workspaceId}/${board.id}/analytics`}>
+              <BarChart3 className="mr-2 h-4 w-4" />
+              Analytics
+            </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
             <Pencil className="mr-2 h-4 w-4" />
             Edit Board
