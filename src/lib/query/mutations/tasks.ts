@@ -344,13 +344,19 @@ export function useCompleteTask() {
     },
     onMutate: async (taskId) => {
       await queryClient.cancelQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
+      await queryClient.cancelQueries({ queryKey: queryKeys.task(taskId) });
 
       // Snapshot all board caches
       const previousBoardQueries = queryClient.getQueriesData<TaskWithRelations[]>({
         queryKey: TASKS_BOARD_PARTIAL_KEY,
       });
 
-      // Optimistically update all caches
+      // Snapshot individual task query if it exists
+      const previousTask = queryClient.getQueryData<TaskWithRelations>(
+        queryKeys.task(taskId)
+      );
+
+      // Optimistically update all board caches
       previousBoardQueries.forEach(([key, data]) => {
         if (data) {
           queryClient.setQueryData<TaskWithRelations[]>(
@@ -358,18 +364,28 @@ export function useCompleteTask() {
             data.map((task) =>
               task.id === taskId
                 ? {
-                  ...task,
-                  completed: true,
-                  completed_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                }
+                    ...task,
+                    completed: true,
+                    completed_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                  }
                 : task
             )
           );
         }
       });
 
-      return { previousBoardQueries };
+      // Also update individual task query if it exists
+      if (previousTask) {
+        queryClient.setQueryData<TaskWithRelations>(queryKeys.task(taskId), {
+          ...previousTask,
+          completed: true,
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      return { previousBoardQueries, previousTask };
     },
     onSuccess: () => {
       showSuccess("Task completed");
@@ -379,8 +395,13 @@ export function useCompleteTask() {
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
+      // Rollback individual task query if it was updated
+      if (context?.previousTask) {
+        queryClient.setQueryData(queryKeys.task(variables), context.previousTask);
+      }
       // Refetch on error to ensure consistency
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
+      queryClient.invalidateQueries({ queryKey: queryKeys.task(variables) });
     },
     // No onSettled invalidation - Realtime handles sync
   });
@@ -398,13 +419,19 @@ export function useUncompleteTask() {
     },
     onMutate: async (taskId) => {
       await queryClient.cancelQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
+      await queryClient.cancelQueries({ queryKey: queryKeys.task(taskId) });
 
       // Snapshot all board caches
       const previousBoardQueries = queryClient.getQueriesData<TaskWithRelations[]>({
         queryKey: TASKS_BOARD_PARTIAL_KEY,
       });
 
-      // Optimistically update all caches
+      // Snapshot individual task query if it exists
+      const previousTask = queryClient.getQueryData<TaskWithRelations>(
+        queryKeys.task(taskId)
+      );
+
+      // Optimistically update all board caches
       previousBoardQueries.forEach(([key, data]) => {
         if (data) {
           queryClient.setQueryData<TaskWithRelations[]>(
@@ -412,18 +439,28 @@ export function useUncompleteTask() {
             data.map((task) =>
               task.id === taskId
                 ? {
-                  ...task,
-                  completed: false,
-                  completed_at: null,
-                  updated_at: new Date().toISOString(),
-                }
+                    ...task,
+                    completed: false,
+                    completed_at: null,
+                    updated_at: new Date().toISOString(),
+                  }
                 : task
             )
           );
         }
       });
 
-      return { previousBoardQueries };
+      // Also update individual task query if it exists
+      if (previousTask) {
+        queryClient.setQueryData<TaskWithRelations>(queryKeys.task(taskId), {
+          ...previousTask,
+          completed: false,
+          completed_at: null,
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      return { previousBoardQueries, previousTask };
     },
     onSuccess: () => {
       showSuccess("Task marked as incomplete");
@@ -433,8 +470,13 @@ export function useUncompleteTask() {
       context?.previousBoardQueries?.forEach(([key, data]) => {
         queryClient.setQueryData(key, data);
       });
+      // Rollback individual task query if it was updated
+      if (context?.previousTask) {
+        queryClient.setQueryData(queryKeys.task(variables), context.previousTask);
+      }
       // Refetch on error to ensure consistency
       queryClient.invalidateQueries({ queryKey: TASKS_BOARD_PARTIAL_KEY });
+      queryClient.invalidateQueries({ queryKey: queryKeys.task(variables) });
     },
     // No onSettled invalidation - Realtime handles sync
   });
