@@ -73,6 +73,8 @@ export function useCreateTask() {
         created_by: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        share_token: null,
+        share_enabled: false,
         assignees: [],
         labels: [],
         subtasks: [],

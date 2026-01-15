@@ -23,6 +23,8 @@ type TaskPayload = RealtimePostgresChangesPayload<{
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  share_token: string | null;
+  share_enabled: boolean;
 }>;
 
 type AssigneePayload = RealtimePostgresChangesPayload<{
@@ -291,6 +293,8 @@ export function useRealtimeTasks(boardId: string, listIds: string[]) {
                   created_by: newData.created_by,
                   created_at: newData.created_at,
                   updated_at: newData.updated_at,
+                  share_token: newData.share_token ?? null,
+                  share_enabled: newData.share_enabled ?? false,
                   assignees: [],
                   labels: [],
                   subtasks: [],
