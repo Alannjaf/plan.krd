@@ -10,12 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { type TaskWithRelations } from "@/lib/actions/tasks";
 import { useUpdateTask } from "@/lib/query/mutations/tasks";
-import { CalendarIcon, X, Sparkles } from "lucide-react";
+import { CalendarIcon, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { suggestAndStoreDueDate } from "@/lib/actions/ai-insights";
-import { toast } from "sonner";
-import { useState } from "react";
-import { Loader2 } from "lucide-react";
 
 interface TaskDatesProps {
   task: TaskWithRelations;
@@ -25,7 +21,6 @@ interface TaskDatesProps {
 
 export function TaskDates({ task, onChanged, readOnly = false }: TaskDatesProps) {
   const updateTaskMutation = useUpdateTask();
-  const [isSuggesting, setIsSuggesting] = useState(false);
 
   const handleDateChange = (
     field: "start_date" | "due_date",
@@ -46,44 +41,10 @@ export function TaskDates({ task, onChanged, readOnly = false }: TaskDatesProps)
   const isOverdue =
     parsedDueDate && parsedDueDate < new Date() && !task.start_date;
 
-  const handleSuggestDueDate = async () => {
-    setIsSuggesting(true);
-    try {
-      const result = await suggestAndStoreDueDate(task.id, true);
-      if (result.success && result.suggestion) {
-        const suggestedDate = new Date(result.suggestion.suggested_date);
-        handleDateChange("due_date", suggestedDate);
-        toast.success(`Suggested due date: ${format(suggestedDate, "PPP")}`);
-      } else {
-        toast.error(result.error || "Failed to suggest due date");
-      }
-    } catch (error) {
-      toast.error("Failed to suggest due date");
-    } finally {
-      setIsSuggesting(false);
-    }
-  };
-
   return (
     <div className="space-y-3">
-      <div className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+      <div className="text-sm font-medium text-muted-foreground">
         <span>Dates</span>
-        {!readOnly && !task.id.startsWith("temp-") && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleSuggestDueDate}
-            disabled={isSuggesting}
-            className="h-7"
-          >
-            {isSuggesting ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Sparkles className="h-3 w-3" />
-            )}
-            <span className="ml-1 text-xs">AI Suggest</span>
-          </Button>
-        )}
       </div>
 
       {/* Start Date */}

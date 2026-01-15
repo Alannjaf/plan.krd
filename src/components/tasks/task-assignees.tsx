@@ -17,7 +17,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/query/queries/tasks";
 import { Users, Plus, X, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { AutoAssignmentPanel } from "@/components/ai/auto-assignment-panel";
 
 type WorkspaceMember = {
   user_id: string;
@@ -115,21 +114,9 @@ export function TaskAssignees({
 
   return (
       <div className="space-y-2">
-      <div className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Users className="h-4 w-4" />
-          Assignees
-        </div>
-        {!readOnly && !task.id.startsWith("temp-") && (
-          <AutoAssignmentPanel
-            taskId={task.id}
-            onAssigned={() => {
-              onChanged();
-              queryClient.invalidateQueries({ queryKey: queryKeys.task(task.id) });
-              queryClient.invalidateQueries({ queryKey: queryKeys.tasksByBoard(boardId) });
-            }}
-          />
-        )}
+      <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+        <Users className="h-4 w-4" />
+        Assignees
       </div>
 
       <div className="flex flex-wrap gap-2">
