@@ -9,9 +9,18 @@ import { useComments } from "@/lib/query/queries/comments";
 import { useWorkspaceMembers } from "@/lib/query/queries/members";
 import { useCreateComment } from "@/lib/query/mutations/comments";
 import { CommentItem } from "./comment-item";
-import { Loader2, Send, MessageSquare } from "lucide-react";
+import { Loader2, Send, MessageSquare, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SummaryButton } from "@/components/ai/summary-button";
+import { generateNotesFromComments } from "@/lib/actions/ai-writing";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface CommentSectionProps {
   taskId: string;
@@ -46,6 +55,9 @@ export function CommentSection({
   const [showMentions, setShowMentions] = useState(false);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [mentionSearch, setMentionSearch] = useState("");
+  const [showMeetingNotes, setShowMeetingNotes] = useState(false);
+  const [meetingNotes, setMeetingNotes] = useState<any>(null);
+  const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const filteredMembers = members.filter((member) => {
@@ -239,17 +251,47 @@ export function CommentSection({
         </p>
       ) : (
         <>
-          {/* Comments Header with Summary */}
+          {/* Comments Header with Summary and Meeting Notes */}
           {comments.length >= 3 && (
             <div className="flex items-center justify-between mb-2 shrink-0">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <MessageSquare className="h-4 w-4" />
                 <span>{comments.length} comments</span>
               </div>
-              <SummaryButton
-                content={comments.map((c) => `${c.profiles?.full_name || 'User'}: ${c.content}`).join('\n\n')}
-                minLength={300}
-              />
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    setIsGeneratingNotes(true);
+                    try {
+                      const result = await generateNotesFromComments(taskId);
+                      if (result.success && result.notes) {
+                        setMeetingNotes(result.notes);
+                        setShowMeetingNotes(true);
+                      } else {
+                        toast.error(result.error || "Failed to generate meeting notes");
+                      }
+                    } catch (error) {
+                      toast.error("Failed to generate meeting notes");
+                    } finally {
+                      setIsGeneratingNotes(false);
+                    }
+                  }}
+                  disabled={isGeneratingNotes}
+                >
+                  {isGeneratingNotes ? (
+                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  ) : (
+                    <FileText className="h-3 w-3 mr-1" />
+                  )}
+                  Meeting Notes
+                </Button>
+                <SummaryButton
+                  content={comments.map((c) => `${c.profiles?.full_name || 'User'}: ${c.content}`).join('\n\n')}
+                  minLength={300}
+                />
+              </div>
             </div>
           )}
           <ScrollArea className="h-[500px]">
@@ -266,6 +308,62 @@ export function CommentSection({
           </ScrollArea>
         </>
       )}
+
+      {/* Meeting Notes Dialog */}
+      <Dialog open={showMeetingNotes} onOpenChange={setShowMeetingNotes}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Meeting Notes</DialogTitle>
+            <DialogDescription>
+              AI-generated structured notes from task comments
+            </DialogDescription>
+          </DialogHeader>
+          {meetingNotes && (
+            <div className="space-y-4">
+              {meetingNotes.summary && (
+                <div>
+                  <h4 className="font-medium mb-2">Summary</h4>
+                  <p className="text-sm text-muted-foreground">{meetingNotes.summary}</p>
+                </div>
+              )}
+              {meetingNotes.action_items && meetingNotes.action_items.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">Action Items</h4>
+                  <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                    {meetingNotes.action_items.map((item: any, i: number) => (
+                      <li key={i}>
+                        {item.item}
+                        {item.assignee && ` (${item.assignee})`}
+                        {item.due_date && ` - Due: ${item.due_date}`}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {meetingNotes.decisions && meetingNotes.decisions.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">Decisions</h4>
+                  <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                    {meetingNotes.decisions.map((decision: string, i: number) => (
+                      <li key={i}>{decision}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {meetingNotes.next_steps && meetingNotes.next_steps.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">Next Steps</h4>
+                  <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                    {meetingNotes.next_steps.map((step: string, i: number) => (
+                      <li key={i}>{step}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

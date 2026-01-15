@@ -15,13 +15,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Pencil, Trash2, Settings2, Archive, RotateCcw, Loader2, BarChart3 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2, Settings2, Archive, RotateCcw, Loader2, BarChart3, Brain } from "lucide-react";
 import { archiveBoard, unarchiveBoard, type Board } from "@/lib/actions/boards";
 import { EditBoardDialog } from "./edit-board-dialog";
 import { DeleteBoardDialog } from "./delete-board-dialog";
 import { CustomFieldsSettings } from "./custom-fields-settings";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { InsightsPanel } from "@/components/ai/insights-panel";
 
 interface BoardHeaderActionsProps {
   board: Board;
@@ -32,6 +33,7 @@ export function BoardHeaderActions({ board, workspaceId }: BoardHeaderActionsPro
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showCustomFieldsDialog, setShowCustomFieldsDialog] = useState(false);
+  const [showInsightsDialog, setShowInsightsDialog] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
   const router = useRouter();
 
@@ -65,6 +67,10 @@ export function BoardHeaderActions({ board, workspaceId }: BoardHeaderActionsPro
               <BarChart3 className="mr-2 h-4 w-4" />
               Analytics
             </Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setShowInsightsDialog(true)}>
+            <Brain className="mr-2 h-4 w-4" />
+            AI Insights
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setShowEditDialog(true)}>
@@ -124,6 +130,19 @@ export function BoardHeaderActions({ board, workspaceId }: BoardHeaderActionsPro
             <DialogTitle>Board Settings</DialogTitle>
           </DialogHeader>
           <CustomFieldsSettings boardId={board.id} />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showInsightsDialog} onOpenChange={setShowInsightsDialog}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>AI Insights</DialogTitle>
+          </DialogHeader>
+          {showInsightsDialog && (
+            <div className="mt-4">
+              <InsightsPanel boardId={board.id} workspaceId={workspaceId} />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>

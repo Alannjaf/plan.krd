@@ -10,7 +10,8 @@ import { useUpdateTask } from "@/lib/query/mutations/tasks";
 import { AlignLeft, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SummaryButton } from "@/components/ai/summary-button";
-import { RewriteButton } from "@/components/ai/rewrite-button";
+import { DescriptionImprover } from "@/components/ai/description-improver";
+import { toast } from "sonner";
 
 interface TaskDescriptionProps {
   task: TaskWithRelations;
@@ -108,23 +109,6 @@ export function TaskDescription({
     setIsEditing(false);
   };
 
-  const handleApplyRewrite = (rewritten: string) => {
-    if (!effectiveTaskId) {
-      console.error("Cannot update task with temporary ID. Please wait for task to be created.");
-      return;
-    }
-
-    onChanged();
-    
-    updateTaskMutation.mutate(
-      { taskId: effectiveTaskId, updates: { description: rewritten } },
-      {
-        onError: () => {
-          console.error("Failed to apply rewritten description");
-        },
-      }
-    );
-  };
 
   return (
     <div className="space-y-2">
@@ -133,13 +117,54 @@ export function TaskDescription({
           <AlignLeft className="h-4 w-4" />
           Description
         </div>
-        {hasContentForRewrite && !readOnly && (
+        {!readOnly && effectiveTaskId && (
           <div className="flex items-center gap-1">
-            <RewriteButton
-              content={currentContent}
-              onApply={handleApplyRewrite}
-              minLength={20}
-            />
+            {hasContentForRewrite && (
+              <DescriptionImprover
+                taskId={effectiveTaskId}
+                currentText={currentContent}
+                fieldType="description"
+                taskTitle={task.title}
+                improveBoth={!!(task.title && task.title.length >= 3)}
+                onImproved={(text) => {
+                  if (editor) {
+                    // Update editor immediately (optimistic update)
+                    editor.commands.setContent(text);
+                    setEditorContent(text);
+                    
+                    // Save in background without waiting
+                    if (effectiveTaskId) {
+                      updateTaskMutation.mutate(
+                        { taskId: effectiveTaskId, updates: { description: text } },
+                        {
+                          onError: () => {
+                            // Rollback on error
+                            editor.commands.setContent(task.description || "");
+                            setEditorContent(task.description || "");
+                            toast.error("Failed to save description. Please try again.");
+                          },
+                        }
+                      );
+                      onChanged();
+                    }
+                  }
+                }}
+                onTitleImproved={(improvedTitle) => {
+                  // Update immediately (optimistic update)
+                  updateTaskMutation.mutate(
+                    { taskId: effectiveTaskId, updates: { title: improvedTitle } },
+                    {
+                      onSuccess: () => {
+                        onChanged();
+                      },
+                      onError: () => {
+                        toast.error("Failed to update title. Please try again.");
+                      },
+                    }
+                  );
+                }}
+              />
+            )}
             {hasContentForSummarize && (
               <SummaryButton content={currentContent} minLength={300} />
             )}

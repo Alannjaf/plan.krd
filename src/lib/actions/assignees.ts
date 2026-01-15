@@ -36,7 +36,8 @@ export async function getTaskAssignees(taskId: string): Promise<Assignee[]> {
 
 export async function addAssignee(
   taskId: string,
-  userId: string
+  userId: string,
+  aiSuggested: boolean = false
 ): Promise<{ success: boolean; error?: string }> {
   const supabase = await createClient();
 
@@ -48,6 +49,7 @@ export async function addAssignee(
     task_id: taskId,
     user_id: userId,
     assigned_by: user?.id,
+    ai_suggested: aiSuggested,
   });
 
   if (error) {
