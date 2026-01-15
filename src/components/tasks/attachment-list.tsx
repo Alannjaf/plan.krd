@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import {
@@ -280,6 +280,7 @@ export function AttachmentList({ task, onChanged }: AttachmentListProps) {
                     src={previewUrl}
                     alt={previewAttachment.file_name}
                     className="max-w-full max-h-full object-contain"
+                    loading="lazy"
                   />
                 ) : isPdfFile(previewAttachment.file_type) ? (
                   <iframe
@@ -357,12 +358,33 @@ interface AttachmentCardProps {
 function AttachmentCard({ attachment, onDelete, onDownload, onPreview, onChat }: AttachmentCardProps) {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [isLoadingThumbnail, setIsLoadingThumbnail] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
 
+  // Intersection Observer for lazy loading thumbnails
   useEffect(() => {
-    if (isImageFile(attachment.file_type)) {
+    if (!cardRef.current || !isImageFile(attachment.file_type)) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(cardRef.current);
+    return () => observer.disconnect();
+  }, [attachment.file_type]);
+
+  // Load thumbnail only when visible
+  useEffect(() => {
+    if (isVisible && isImageFile(attachment.file_type) && !thumbnailUrl) {
       loadThumbnail();
     }
-  }, [attachment]);
+  }, [isVisible, attachment.file_type, thumbnailUrl]);
 
   const loadThumbnail = async () => {
     setIsLoadingThumbnail(true);
@@ -375,6 +397,7 @@ function AttachmentCard({ attachment, onDelete, onDownload, onPreview, onChat }:
 
   return (
     <div 
+      ref={cardRef}
       className="group relative border rounded-lg p-3 hover:bg-secondary/30 transition-colors cursor-pointer"
       onClick={() => onPreview(attachment)}
     >
@@ -388,6 +411,7 @@ function AttachmentCard({ attachment, onDelete, onDownload, onPreview, onChat }:
                 src={thumbnailUrl}
                 alt={attachment.file_name}
                 className="w-full h-full object-cover"
+                loading="lazy"
               />
             ) : (
               <ImageIcon className="h-6 w-6 text-muted-foreground" />

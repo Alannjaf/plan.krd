@@ -32,6 +32,68 @@ export type WorkspaceMember = {
   };
 };
 
+export type WorkspaceSummary = {
+  id: string;
+  name: string;
+  description: string | null;
+  member_count: number;
+  current_user_role: "owner" | "admin" | "member" | "viewer" | "commenter" | null;
+};
+
+/**
+ * Get lightweight workspace summaries for dashboard listing
+ * Returns only essential fields for fast loading
+ */
+export async function getWorkspacesSummary(): Promise<WorkspaceSummary[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  // Get workspaces with member count (minimal fields)
+  const { data: workspaces, error } = await supabase
+    .from("workspaces")
+    .select("id, name, description, workspace_members(count)")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    logger.error("Error fetching workspace summaries", error, { userId: user.id });
+    return [];
+  }
+
+  if (!workspaces) {
+    return [];
+  }
+
+  // Get user's role for each workspace
+  const { data: memberships } = await supabase
+    .from("workspace_members")
+    .select("workspace_id, role")
+    .eq("user_id", user.id);
+
+  const membershipMap = new Map(
+    memberships?.map((m) => [m.workspace_id, m.role]) || []
+  );
+
+  return workspaces.map((workspace) => {
+    const memberCount = (workspace.workspace_members as { count: number }[])?.[0]?.count || 0;
+    const userRole = membershipMap.get(workspace.id) || null;
+
+    return {
+      id: workspace.id,
+      name: workspace.name,
+      description: workspace.description,
+      member_count: memberCount,
+      current_user_role: userRole,
+    };
+  });
+}
+
 export async function getWorkspaces(): Promise<WorkspaceWithMeta[]> {
   const supabase = await createClient();
 

@@ -1,21 +1,47 @@
 "use client";
 
-import { useState, useMemo, memo } from "react";
+import { useState, useMemo, memo, useEffect, useRef, useCallback } from "react";
 import { Droppable } from "@hello-pangea/dnd";
+// Note: Virtualization with drag-and-drop is complex. 
+// For now, we'll use conditional rendering based on task count.
+// Full virtualization can be added later with a drag-and-drop compatible solution.
 import { KanbanCard } from "./kanban-card";
 import { ColumnToolbar, type SortOption, type FilterPriority, type FilterDueDate } from "./column-toolbar";
 import { Button } from "@/components/ui/button";
-import { Plus, MoreHorizontal } from "lucide-react";
+import { Plus, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTasksSummaryByList, queryKeys } from "@/lib/query/queries/tasks";
+import { useQueryClient } from "@tanstack/react-query";
 import type { List } from "@/lib/actions/lists";
-import type { TaskWithRelations } from "@/lib/actions/tasks";
+import type { TaskSummary, TaskWithRelations, PaginatedTaskSummaryResult } from "@/lib/actions/tasks";
 
 interface KanbanColumnProps {
   list: List;
-  tasks: TaskWithRelations[];
+  boardId: string;
+  showArchived?: boolean;
   onAddTask: (listId: string) => void;
   onTaskClick?: (taskId: string) => void;
   readOnly?: boolean;
+}
+
+// Helper to convert TaskSummary to minimal TaskWithRelations for KanbanCard
+function taskSummaryToTaskWithRelations(summary: TaskSummary): TaskWithRelations {
+  return {
+    ...summary,
+    description: null,
+    start_date: null,
+    archived_at: null,
+    completed_at: null,
+    created_by: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    share_token: null,
+    share_enabled: false,
+    assignees: [],
+    labels: [],
+    subtasks: [],
+    custom_field_values: [],
+  } as TaskWithRelations;
 }
 
 // Priority order for sorting
@@ -28,15 +54,79 @@ const priorityOrder: Record<string, number> = {
 
 export const KanbanColumn = memo(function KanbanColumn({
   list,
-  tasks,
+  boardId,
+  showArchived = false,
   onAddTask,
   onTaskClick,
   readOnly = false,
 }: KanbanColumnProps) {
+  const queryClient = useQueryClient();
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+  const columnRef = useRef<HTMLDivElement>(null);
+  
+  // Fetch task summaries for this list
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useTasksSummaryByList(list.id, showArchived);
+
+
+  // Flatten all pages into a single array
+  const taskSummaries = useMemo(() => {
+    if (!data?.pages) return [];
+    return (data.pages as PaginatedTaskSummaryResult[]).flatMap((page) => page.tasks);
+  }, [data]);
+
+  // Convert summaries to TaskWithRelations format
+  const tasks = useMemo(() => {
+    return taskSummaries.map(taskSummaryToTaskWithRelations);
+  }, [taskSummaries]);
+
   // Per-column filter and sort state
   const [sortBy, setSortBy] = useState<SortOption>("position");
   const [filterPriority, setFilterPriority] = useState<FilterPriority>("all");
   const [filterDueDate, setFilterDueDate] = useState<FilterDueDate>("all");
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    if (!loadMoreRef.current || !hasNextPage || isLoading) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasNextPage, isLoading, isFetchingNextPage, fetchNextPage]);
+
+  // Handle task click with cache pre-seeding for instant modal opening
+  const handleTaskClick = useCallback((taskId: string) => {
+    // Find the task summary in our current data
+    const taskSummary = taskSummaries.find((t) => t.id === taskId);
+    
+    if (taskSummary) {
+      // Pre-seed cache with summary data converted to TaskWithRelations
+      // This allows modal to open instantly with at least summary data
+      const partialTask = taskSummaryToTaskWithRelations(taskSummary);
+      const existing = queryClient.getQueryData<TaskWithRelations>(queryKeys.task(taskId));
+      
+      // Only set if not already in cache (don't overwrite full details with summary)
+      if (!existing) {
+        queryClient.setQueryData(queryKeys.task(taskId), partialTask);
+      }
+    }
+    
+    // Call the parent's onTaskClick handler
+    onTaskClick?.(taskId);
+  }, [taskSummaries, queryClient, onTaskClick]);
 
   // Filter tasks
   const filteredTasks = useMemo(() => {
@@ -150,48 +240,92 @@ export const KanbanColumn = memo(function KanbanColumn({
       {/* Droppable Area */}
       <Droppable droppableId={list.id} type="TASK" isDropDisabled={readOnly}>
         {(provided, snapshot) => (
-          <div
-            ref={provided.innerRef}
-            {...provided.droppableProps}
-            className={cn(
-              "flex-1 p-2 min-h-[200px] transition-colors duration-200 overflow-y-auto",
-              snapshot.isDraggingOver && "bg-primary/5",
-              readOnly && "cursor-default"
-            )}
-            role="group"
-            aria-labelledby={`column-${list.id}-title`}
-            aria-label={`Task list for ${list.name}`}
-          >
-            {sortedTasks.map((task, index) => (
-              <KanbanCard
-                key={task.id}
-                task={task}
-                index={index}
-                onClick={() => onTaskClick?.(task.id)}
-              />
-            ))}
-            {provided.placeholder}
+            <div
+              ref={(node) => {
+                provided.innerRef(node);
+                columnRef.current = node;
+              }}
+              {...provided.droppableProps}
+              className={cn(
+                "flex-1 p-2 min-h-[200px] transition-colors duration-200 overflow-y-auto",
+                snapshot.isDraggingOver && "bg-primary/5",
+                readOnly && "cursor-default"
+              )}
+              role="group"
+              aria-labelledby={`column-${list.id}-title`}
+              aria-label={`Task list for ${list.name}`}
+            >
+              {isLoading && tasks.length === 0 ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                // Render all tasks (virtualization disabled for drag-and-drop compatibility)
+                // For very large lists, consider implementing a drag-and-drop compatible virtualization solution
+                <>
+                  {sortedTasks.map((task, index) => (
+                    <KanbanCard
+                      key={task.id}
+                      task={task}
+                      index={index}
+                      boardId={boardId}
+                      onClick={() => handleTaskClick(task.id)}
+                    />
+                  ))}
+                  {provided.placeholder}
+                </>
+              )}
 
-            {/* Empty state when filtered */}
-            {sortedTasks.length === 0 && tasks.length > 0 && (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <p className="text-xs text-muted-foreground">
-                  No tasks match filters
-                </p>
+              {/* Load more trigger */}
+              {hasNextPage && (
+                <div ref={loadMoreRef} className="h-4 flex items-center justify-center mt-2">
+                  {isFetchingNextPage && (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  )}
+                </div>
+              )}
+
+              {/* Load more button (fallback) */}
+              {hasNextPage && !isFetchingNextPage && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="mt-2 text-xs h-7"
-                  onClick={() => {
-                    setFilterPriority("all");
-                    setFilterDueDate("all");
-                  }}
+                  className="w-full mt-2 text-xs"
+                  onClick={() => fetchNextPage()}
                 >
-                  Clear filters
+                  Load more
                 </Button>
-              </div>
-            )}
-          </div>
+              )}
+
+              {/* Empty state when filtered */}
+              {sortedTasks.length === 0 && tasks.length > 0 && (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <p className="text-xs text-muted-foreground">
+                    No tasks match filters
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2 text-xs h-7"
+                    onClick={() => {
+                      setFilterPriority("all");
+                      setFilterDueDate("all");
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                </div>
+              )}
+
+              {/* Empty state when no tasks */}
+              {sortedTasks.length === 0 && tasks.length === 0 && !isLoading && (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <p className="text-xs text-muted-foreground">
+                    No tasks yet
+                  </p>
+                </div>
+              )}
+            </div>
         )}
       </Droppable>
 
@@ -216,8 +350,9 @@ export const KanbanColumn = memo(function KanbanColumn({
   return (
     prevProps.list.id === nextProps.list.id &&
     prevProps.list.name === nextProps.list.name &&
+    prevProps.boardId === nextProps.boardId &&
+    prevProps.showArchived === nextProps.showArchived &&
     prevProps.readOnly === nextProps.readOnly &&
-    prevProps.tasks === nextProps.tasks && // Reference equality for tasks array
     prevProps.onAddTask === nextProps.onAddTask &&
     prevProps.onTaskClick === nextProps.onTaskClick
   );

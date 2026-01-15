@@ -12,28 +12,14 @@ import type { TaskWithRelations } from "@/lib/actions/tasks";
 interface PublicBoardViewProps {
   board: Board;
   lists: List[];
-  tasks: TaskWithRelations[];
+  tasks?: TaskWithRelations[]; // Optional for backward compatibility
 }
 
 export function PublicBoardView({ board, lists, tasks }: PublicBoardViewProps) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
-  // Group tasks by list
-  const tasksByList = tasks.reduce(
-    (acc, task) => {
-      if (!acc[task.list_id]) {
-        acc[task.list_id] = [];
-      }
-      acc[task.list_id].push(task);
-      return acc;
-    },
-    {} as Record<string, TaskWithRelations[]>
-  );
-
-  // Sort tasks by position within each list
-  Object.keys(tasksByList).forEach((listId) => {
-    tasksByList[listId].sort((a, b) => a.position - b.position);
-  });
+  // Note: tasks prop is kept for backward compatibility but not used
+  // KanbanColumn now fetches its own tasks per list
 
   const handleTaskClick = (taskId: string) => {
     setSelectedTaskId(taskId);
@@ -71,7 +57,8 @@ export function PublicBoardView({ board, lists, tasks }: PublicBoardViewProps) {
             <KanbanColumn
               key={list.id}
               list={list}
-              tasks={tasksByList[list.id] || []}
+              boardId={board.id}
+              showArchived={false}
               onAddTask={() => {}} // Disabled in public view
               onTaskClick={handleTaskClick}
               readOnly={true}

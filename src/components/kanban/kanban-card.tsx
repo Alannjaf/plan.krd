@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState, useEffect, useRef } from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -15,11 +15,13 @@ import { cn } from "@/lib/utils";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useCompleteTask, useUncompleteTask } from "@/lib/query/mutations/tasks";
+import { usePrefetchTaskDetails } from "@/lib/hooks/use-prefetch-task";
 import type * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 
 interface KanbanCardProps {
   task: TaskWithRelations;
   index: number;
+  boardId?: string;
   onClick?: (taskId: string) => void;
 }
 
@@ -42,9 +44,28 @@ const getInitials = (name: string | null, email: string | null) => {
   return email?.slice(0, 2).toUpperCase() || "??";
 };
 
-function KanbanCardComponent({ task, index, onClick }: KanbanCardProps) {
+function KanbanCardComponent({ task, index, boardId, onClick }: KanbanCardProps) {
   const completeTaskMutation = useCompleteTask();
   const uncompleteTaskMutation = useUncompleteTask();
+  const prefetchTaskDetails = usePrefetchTaskDetails();
+  const [isHovered, setIsHovered] = useState(false);
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounced prefetch on hover (300ms delay - Trello-style)
+  useEffect(() => {
+    if (isHovered && boardId) {
+      hoverTimeoutRef.current = setTimeout(() => {
+        prefetchTaskDetails(task.id, boardId);
+      }, 300); // 300ms debounce to avoid overfetching
+
+      return () => {
+        if (hoverTimeoutRef.current) {
+          clearTimeout(hoverTimeoutRef.current);
+          hoverTimeoutRef.current = null;
+        }
+      };
+    }
+  }, [isHovered, task.id, boardId, prefetchTaskDetails]);
   
   const isOverdue = useMemo(() => {
     if (!task.due_date || task.completed) return false;
@@ -82,6 +103,15 @@ function KanbanCardComponent({ task, index, onClick }: KanbanCardProps) {
           aria-label={`Task: ${task.title}${task.priority ? `, Priority: ${task.priority}` : ""}${task.due_date ? `, Due: ${formattedDueDate}` : ""}`}
           tabIndex={0}
           {...provided.dragHandleProps}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => {
+            setIsHovered(false);
+            // Cancel prefetch if user moves away
+            if (hoverTimeoutRef.current) {
+              clearTimeout(hoverTimeoutRef.current);
+              hoverTimeoutRef.current = null;
+            }
+          }}
           onClick={() => onClick?.(task.id)}
           className={cn(
             "p-3 mb-2 cursor-pointer transition-all duration-200",
@@ -209,6 +239,7 @@ function KanbanCardComponent({ task, index, onClick }: KanbanCardProps) {
                         <Avatar className="h-6 w-6 border-2 border-card">
                           <AvatarImage
                             src={assignee.profiles.avatar_url || undefined}
+                            loading="lazy"
                           />
                           <AvatarFallback className="text-[10px]">
                             {getInitials(

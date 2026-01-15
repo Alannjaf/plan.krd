@@ -35,6 +35,41 @@ export type Board = {
   public_enabled: boolean;
 };
 
+export type BoardSummary = {
+  id: string;
+  name: string;
+  description: string | null;
+  workspace_id: string;
+  archived: boolean;
+};
+
+/**
+ * Get lightweight board summaries for workspace listing
+ * Returns only essential fields for fast loading
+ */
+export async function getBoardsSummary(workspaceId: string, includeArchived: boolean = false): Promise<BoardSummary[]> {
+  const supabase = await createClient();
+
+  let query = supabase
+    .from("boards")
+    .select("id, name, description, workspace_id, archived")
+    .eq("workspace_id", workspaceId)
+    .order("position", { ascending: true });
+
+  if (!includeArchived) {
+    query = query.eq("archived", false);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    logger.error("Error fetching board summaries", error, { workspaceId, includeArchived });
+    return [];
+  }
+
+  return data || [];
+}
+
 export async function getBoards(workspaceId: string, includeArchived: boolean = false): Promise<Board[]> {
   const supabase = await createClient();
 

@@ -4,18 +4,18 @@ import { useState } from "react";
 import { BoardCard } from "./board-card";
 import { CreateBoardDialog } from "./create-board-dialog";
 import { Button } from "@/components/ui/button";
-import { type Board, getBoards } from "@/lib/actions/boards";
+import { type Board, type BoardSummary, getBoardsSummary } from "@/lib/actions/boards";
 import { LayoutDashboard, Archive, ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface WorkspaceBoardsProps {
   workspaceId: string;
-  initialBoards: Board[];
+  initialBoards: BoardSummary[];
 }
 
 export function WorkspaceBoards({ workspaceId, initialBoards }: WorkspaceBoardsProps) {
   const [boards, setBoards] = useState(initialBoards);
-  const [archivedBoards, setArchivedBoards] = useState<Board[]>([]);
+  const [archivedBoards, setArchivedBoards] = useState<BoardSummary[]>([]);
   const [showArchived, setShowArchived] = useState(false);
   const [isLoadingArchived, setIsLoadingArchived] = useState(false);
 
@@ -25,7 +25,7 @@ export function WorkspaceBoards({ workspaceId, initialBoards }: WorkspaceBoardsP
     if (!showArchived && archivedBoards.length === 0) {
       // Fetch archived boards
       setIsLoadingArchived(true);
-      const allBoards = await getBoards(workspaceId, true);
+      const allBoards = await getBoardsSummary(workspaceId, true);
       const archived = allBoards.filter((b) => b.archived);
       setArchivedBoards(archived);
       setIsLoadingArchived(false);

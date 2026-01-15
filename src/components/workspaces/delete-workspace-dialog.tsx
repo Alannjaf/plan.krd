@@ -11,12 +11,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { deleteWorkspace, type Workspace } from "@/lib/actions/workspaces";
+import { deleteWorkspace, type Workspace, type WorkspaceSummary } from "@/lib/actions/workspaces";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 interface DeleteWorkspaceDialogProps {
-  workspace: Workspace;
+  workspace: Workspace | WorkspaceSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }

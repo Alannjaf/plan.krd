@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
-import { useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
-import { getTasksWithRelations, getTask, type TaskWithRelations, type PaginationParams } from "@/lib/actions/tasks";
+import { useEffect, useCallback } from "react";
+import { useQuery, useQueryClient, useInfiniteQuery, type InfiniteData } from "@tanstack/react-query";
+import { getTasksWithRelations, getTask, getTasksSummaryByList, getTaskSummary, type TaskWithRelations, type TaskSummary, type PaginationParams, type PaginatedTaskSummaryResult } from "@/lib/actions/tasks";
 
 export const queryKeys = {
   tasksByBoard: (boardId?: string) => ["tasks", "board", boardId] as const,
   tasksByBoardInfinite: (boardId?: string) => ["tasks", "board", "infinite", boardId] as const,
+  tasksSummaryByList: (listId?: string) => ["tasks", "summary", "list", listId] as const,
   task: (taskId: string) => ["tasks", taskId] as const,
+  taskSummary: (taskId: string) => ["tasks", "summary", taskId] as const,
 };
 
 const TASKS_PER_PAGE = 50;
@@ -26,7 +28,10 @@ export function useTasksWithRelations(
     },
     enabled: !!boardId,
     initialData: initialData,
-    refetchOnMount: initialData ? false : true, // Don't refetch if we have initial data
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
+    refetchOnMount: initialData ? false : false, // Use cached data if available
   });
 }
 
@@ -59,6 +64,13 @@ export function useTasksWithRelationsInfinite(
 }
 
 export function useTask(taskId: string | null, boardId?: string) {
+  const queryClient = useQueryClient();
+  
+  // Get cached data to use as initialData
+  const cachedData = taskId 
+    ? queryClient.getQueryData<TaskWithRelations>(queryKeys.task(taskId))
+    : null;
+
   return useQuery({
     queryKey: queryKeys.task(taskId || ""),
     queryFn: () => {
@@ -66,7 +78,68 @@ export function useTask(taskId: string | null, boardId?: string) {
       return getTask(taskId, boardId);
     },
     enabled: !!taskId,
+    initialData: cachedData, // Use cached/prefetched data if available
     staleTime: 30 * 1000, // 30 seconds - task data is fresh, prevents immediate refetch
+    gcTime: 5 * 60 * 1000, // 5 minutes (formerly cacheTime)
+    refetchOnWindowFocus: false,
+    refetchOnMount: false, // Use cached data if available
+  });
+}
+
+/**
+ * Infinite query hook for paginated task summaries by list
+ * Use this for lazy loading tasks in kanban columns
+ */
+export function useTasksSummaryByList(
+  listId: string,
+  includeArchived = false
+) {
+  return useInfiniteQuery<PaginatedTaskSummaryResult, Error, InfiniteData<PaginatedTaskSummaryResult>, readonly ["tasks", "summary", "list", string | undefined], string | undefined>({
+    queryKey: queryKeys.tasksSummaryByList(listId),
+    queryFn: async ({ pageParam }) => {
+      const pagination: PaginationParams = {
+        limit: 20, // 20 tasks per page
+        cursor: pageParam,
+      };
+      const result = await getTasksSummaryByList(listId, includeArchived, pagination);
+      return result;
+    },
+    enabled: !!listId,
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => {
+      if (!lastPage.hasMore) return undefined;
+      return lastPage.nextCursor;
+    },
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 5 * 60 * 1000, // 5 minutes (formerly cacheTime)
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+  });
+}
+
+/**
+ * Hook to fetch full task details on demand
+ * Use this when opening task detail modal
+ */
+export function useTaskDetails(taskId: string | null, boardId?: string) {
+  return useTask(taskId, boardId); // Reuse existing hook with optimized settings
+}
+
+/**
+ * Hook to fetch task summary (lightweight)
+ */
+export function useTaskSummary(taskId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.taskSummary(taskId || ""),
+    queryFn: () => {
+      if (!taskId) return null;
+      return getTaskSummary(taskId);
+    },
+    enabled: !!taskId,
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000, // 5 minutes (formerly cacheTime)
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
 }
 
@@ -87,4 +160,31 @@ export function useSeedTaskCache(tasks: TaskWithRelations[]) {
       }
     });
   }, [tasks, queryClient]);
+}
+
+/**
+ * Hook to prefetch task details (Trello-style hover prefetching)
+ * Use this to prefetch task details when user hovers over a card
+ */
+export function usePrefetchTaskDetails() {
+  const queryClient = useQueryClient();
+
+  return useCallback(
+    (taskId: string, boardId?: string) => {
+      // Check if already cached and fresh
+      const cached = queryClient.getQueryData<TaskWithRelations>(
+        queryKeys.task(taskId)
+      );
+      
+      // Only prefetch if not cached or stale
+      if (!cached) {
+        queryClient.prefetchQuery({
+          queryKey: queryKeys.task(taskId),
+          queryFn: () => getTask(taskId, boardId),
+          staleTime: 30 * 1000, // 30 seconds
+        });
+      }
+    },
+    [queryClient]
+  );
 }

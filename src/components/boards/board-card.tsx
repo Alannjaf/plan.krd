@@ -12,14 +12,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { LayoutDashboard, MoreHorizontal, Pencil, Trash2, Archive, RotateCcw, Loader2 } from "lucide-react";
-import { type Board } from "@/lib/actions/boards";
+import { type Board, type BoardSummary } from "@/lib/actions/boards";
 import { useArchiveBoard, useUnarchiveBoard } from "@/lib/query/mutations/boards";
 import { cn } from "@/lib/utils";
 import { EditBoardDialog } from "./edit-board-dialog";
 import { DeleteBoardDialog } from "./delete-board-dialog";
 
 interface BoardCardProps {
-  board: Board;
+  board: Board | BoardSummary;
   workspaceId: string;
 }
 

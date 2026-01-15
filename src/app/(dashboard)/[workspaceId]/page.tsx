@@ -1,5 +1,5 @@
 import { getWorkspace } from "@/lib/actions/workspaces";
-import { getBoards } from "@/lib/actions/boards";
+import { getBoardsSummary } from "@/lib/actions/boards";
 import { notFound } from "next/navigation";
 import { CreateBoardDialog } from "@/components/boards/create-board-dialog";
 import { WorkspaceBoards } from "@/components/boards/workspace-boards";
@@ -18,7 +18,7 @@ export default async function WorkspacePage({ params }: WorkspacePageProps) {
     notFound();
   }
 
-  const boards = await getBoards(workspaceId);
+  const boards = await getBoardsSummary(workspaceId);
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8">

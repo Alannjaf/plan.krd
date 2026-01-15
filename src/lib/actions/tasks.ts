@@ -181,12 +181,37 @@ export async function getTasksByBoard(boardId: string): Promise<Task[]> {
 export type PaginationParams = {
   limit?: number;
   offset?: number;
+  cursor?: string; // For cursor-based pagination
 };
 
 export type PaginatedTasksResult = {
   tasks: TaskWithRelations[];
   total: number;
   hasMore: boolean;
+  nextCursor?: string; // For cursor-based pagination
+};
+
+export type TaskSummary = {
+  id: string;
+  title: string;
+  list_id: string;
+  position: number;
+  priority: "low" | "medium" | "high" | "urgent" | null;
+  due_date: string | null;
+  completed: boolean;
+  archived: boolean;
+  attachments_count: number;
+  comments_count: number;
+  assignees_count: number;
+  labels_count: number;
+  // No nested relations (assignees, labels, subtasks)
+};
+
+export type PaginatedTaskSummaryResult = {
+  tasks: TaskSummary[];
+  total: number;
+  hasMore: boolean;
+  nextCursor?: string;
 };
 
 // Function overloads for type safety
@@ -382,6 +407,173 @@ export async function getTasksWithRelations(
 
   // Return array for backward compatibility
   return transformedTasks;
+}
+
+/**
+ * Get lightweight task summaries for a specific list (no nested relations)
+ * Optimized for fast loading of kanban columns
+ */
+export async function getTasksSummaryByList(
+  listId: string,
+  includeArchived = false,
+  pagination?: PaginationParams
+): Promise<PaginatedTaskSummaryResult> {
+  const supabase = await createClient();
+  const limit = pagination?.limit ?? 20; // Default to 20 tasks per list
+  const offset = pagination?.offset ?? 0;
+
+  // Build base query
+  let query = supabase
+    .from("tasks")
+    .select("*", { count: "exact" })
+    .eq("list_id", listId)
+    .order("position", { ascending: true });
+
+  if (!includeArchived) {
+    query = query.eq("archived", false);
+  }
+
+  // Apply cursor-based pagination if cursor is provided
+  if (pagination?.cursor) {
+    // Cursor is the position of the last task from previous page
+    query = query.gt("position", parseInt(pagination.cursor));
+  }
+
+  // Apply limit
+  query = query.limit(limit + 1); // Fetch one extra to determine hasMore
+
+  const { data: tasks, error, count } = await query;
+
+  if (error) {
+    logger.error("Error fetching task summaries by list", error, { listId, includeArchived, pagination });
+    return { tasks: [], total: 0, hasMore: false };
+  }
+
+  if (!tasks || tasks.length === 0) {
+    return { tasks: [], total: count ?? 0, hasMore: false };
+  }
+
+  // Determine if there are more tasks
+  const hasMore = tasks.length > limit;
+  const tasksToReturn = hasMore ? tasks.slice(0, limit) : tasks;
+
+  // Get task IDs for count queries
+  const taskIds = tasksToReturn.map((t) => t.id);
+
+  // Fetch counts in parallel (efficient batch queries)
+  const [attachmentsResult, commentsResult, assigneesResult, labelsResult] = await Promise.all([
+    supabase
+      .from("attachments")
+      .select("task_id")
+      .in("task_id", taskIds),
+    supabase
+      .from("comments")
+      .select("task_id")
+      .in("task_id", taskIds),
+    supabase
+      .from("task_assignees")
+      .select("task_id")
+      .in("task_id", taskIds),
+    supabase
+      .from("task_labels")
+      .select("task_id")
+      .in("task_id", taskIds),
+  ]);
+
+  // Count by task_id
+  const attachmentsCountByTask = new Map<string, number>();
+  const commentsCountByTask = new Map<string, number>();
+  const assigneesCountByTask = new Map<string, number>();
+  const labelsCountByTask = new Map<string, number>();
+
+  attachmentsResult.data?.forEach((a) => {
+    const count = attachmentsCountByTask.get(a.task_id) || 0;
+    attachmentsCountByTask.set(a.task_id, count + 1);
+  });
+
+  commentsResult.data?.forEach((c) => {
+    const count = commentsCountByTask.get(c.task_id) || 0;
+    commentsCountByTask.set(c.task_id, count + 1);
+  });
+
+  assigneesResult.data?.forEach((a) => {
+    const count = assigneesCountByTask.get(a.task_id) || 0;
+    assigneesCountByTask.set(a.task_id, count + 1);
+  });
+
+  labelsResult.data?.forEach((l) => {
+    const count = labelsCountByTask.get(l.task_id) || 0;
+    labelsCountByTask.set(l.task_id, count + 1);
+  });
+
+  // Transform to TaskSummary
+  const summaries: TaskSummary[] = tasksToReturn.map((task) => ({
+    id: task.id,
+    title: task.title,
+    list_id: task.list_id,
+    position: task.position,
+    priority: task.priority,
+    due_date: task.due_date,
+    completed: task.completed,
+    archived: task.archived,
+    attachments_count: attachmentsCountByTask.get(task.id) || 0,
+    comments_count: commentsCountByTask.get(task.id) || 0,
+    assignees_count: assigneesCountByTask.get(task.id) || 0,
+    labels_count: labelsCountByTask.get(task.id) || 0,
+  }));
+
+  // Calculate next cursor (position of last task)
+  const nextCursor = hasMore && summaries.length > 0
+    ? summaries[summaries.length - 1].position.toString()
+    : undefined;
+
+  return {
+    tasks: summaries,
+    total: count ?? 0,
+    hasMore,
+    nextCursor,
+  };
+}
+
+/**
+ * Get task summary by ID (lightweight lookup)
+ */
+export async function getTaskSummary(taskId: string): Promise<TaskSummary | null> {
+  const supabase = await createClient();
+
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("id", taskId)
+    .single();
+
+  if (error || !task) {
+    logger.error("Error fetching task summary", error, { taskId });
+    return null;
+  }
+
+  // Get counts
+  const [attachmentsResult, commentsResult, assigneesResult, labelsResult] = await Promise.all([
+    supabase.from("attachments").select("id").eq("task_id", taskId),
+    supabase.from("comments").select("id").eq("task_id", taskId),
+    supabase.from("task_assignees").select("id").eq("task_id", taskId),
+    supabase.from("task_labels").select("id").eq("task_id", taskId),
+  ]);
+
+  return {
+    id: task.id,
+    title: task.title,
+    list_id: task.list_id,
+    position: task.position,
+    priority: task.priority,
+    due_date: task.due_date,
+    completed: task.completed,
+    archived: task.archived,
+    attachments_count: attachmentsResult.data?.length || 0,
+    comments_count: commentsResult.data?.length || 0,
+    assignees_count: assigneesResult.data?.length || 0,
+    labels_count: labelsResult.data?.length || 0,
+  };
 }
 
 export async function createTask(

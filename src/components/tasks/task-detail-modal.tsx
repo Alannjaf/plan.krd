@@ -34,7 +34,7 @@ import { AttachmentList } from "./attachment-list";
 import { ActivityLog } from "./activity-log";
 import { CommentSection } from "./comment-section";
 import { CustomFields } from "./custom-fields";
-import { useTask, queryKeys } from "@/lib/query/queries/tasks";
+import { useTaskDetails, queryKeys } from "@/lib/query/queries/tasks";
 import { useDeleteTask, useArchiveTask, useUnarchiveTask } from "@/lib/query/mutations/tasks";
 import { useRealtimeComments } from "@/lib/hooks/use-realtime-comments";
 import type { TaskWithRelations } from "@/lib/actions/tasks";
@@ -69,7 +69,6 @@ export function TaskDetailModal({
   onTaskUpdated,
   readOnly = false,
 }: TaskDetailModalProps) {
-  const { data: taskFromQuery, isLoading: initialLoading } = useTask(taskId, boardId);
   const queryClient = useQueryClient();
   const deleteTaskMutation = useDeleteTask();
   const archiveTaskMutation = useArchiveTask();
@@ -84,6 +83,18 @@ export function TaskDetailModal({
   const [commentsReady, setCommentsReady] = useState(false);
   const hasChanges = useRef(false);
   const realTaskIdRef = useRef<string | null>(null);
+
+  // Try to get task from cache first (prefetched data)
+  const cachedTask = useMemo(() => {
+    if (!taskId) return null;
+    return queryClient.getQueryData<TaskWithRelations>(queryKeys.task(taskId));
+  }, [taskId, queryClient]);
+
+  // Fetch task details, but use cached data if available
+  const { data: taskFromQuery, isLoading: initialLoading } = useTaskDetails(
+    taskId,
+    boardId
+  );
 
   // If taskId is a temp ID, try to get the task from board cache (optimistic)
   const isTempId = taskId?.startsWith("temp-") ?? false;
@@ -112,16 +123,17 @@ export function TaskDetailModal({
     }
   }, [isTempId, optimisticTask, boardTasks, queryClient]);
 
-  // Use real task if available, otherwise use task from query or optimistic task
+  // Use real task if available, otherwise use task from query, cached, or optimistic task
+  // Priority: realTask > taskFromQuery > cachedTask > optimisticTask
   const task = useMemo(() => {
     // If we have a real task ID, use it
     if (realTaskIdRef.current && boardTasks) {
       const realTask = boardTasks.find(t => t.id === realTaskIdRef.current);
       if (realTask) return realTask;
     }
-    // Use task from query (for real IDs) or optimistic task (for temp IDs)
-    return taskFromQuery || optimisticTask || null;
-  }, [taskFromQuery, optimisticTask, boardTasks]);
+    // Use task from query (fresh data), cached (prefetched), or optimistic task (temp IDs)
+    return taskFromQuery || cachedTask || optimisticTask || null;
+  }, [taskFromQuery, cachedTask, optimisticTask, boardTasks]);
 
   // Determine if we have a real task ID to use for operations
   const effectiveTaskId = realTaskIdRef.current || (isTempId ? null : taskId);
@@ -203,7 +215,8 @@ export function TaskDetailModal({
             View and edit task details, comments, attachments, and activity
           </DialogDescription>
         </VisuallyHidden>
-        {initialLoading ? (
+        {/* Show loading only if we have no task data at all (no cache, no query result) */}
+        {!task && initialLoading ? (
           <div className="flex items-center justify-center flex-1">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>

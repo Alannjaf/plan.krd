@@ -13,6 +13,10 @@ export function useBoards(workspaceId: string, includeArchived = false) {
     queryKey: queryKeys.boards(workspaceId),
     queryFn: () => getBoards(workspaceId, includeArchived),
     enabled: !!workspaceId,
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
+    refetchOnMount: false, // Use cached data if available
   });
 }
 

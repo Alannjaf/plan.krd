@@ -12,12 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { updateWorkspace, type Workspace } from "@/lib/actions/workspaces";
+import { updateWorkspace, type Workspace, type WorkspaceSummary } from "@/lib/actions/workspaces";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 interface EditWorkspaceDialogProps {
-  workspace: Workspace;
+  workspace: Workspace | WorkspaceSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }

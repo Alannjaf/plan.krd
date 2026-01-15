@@ -1,10 +1,10 @@
-import { getWorkspaces } from "@/lib/actions/workspaces";
+import { getWorkspacesSummary } from "@/lib/actions/workspaces";
 import { CreateWorkspaceDialog } from "@/components/workspaces/create-workspace-dialog";
 import { WorkspaceCard } from "@/components/workspaces/workspace-card";
 import { Folder } from "lucide-react";
 
 export default async function DashboardPage() {
-  const workspaces = await getWorkspaces();
+  const workspaces = await getWorkspacesSummary();
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8">

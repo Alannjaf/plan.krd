@@ -20,12 +20,10 @@ const ViewLoadingFallback = () => (
 import { BoardHeaderActions } from "./board-header-actions";
 import { InviteBoardMemberDialog } from "./invite-member-dialog";
 import { ViewSwitcher, type ViewType } from "./view-switcher";
-import { BoardFilter, filterTasks, type FilterState } from "./board-filter";
+import { BoardFilter, type FilterState } from "./board-filter";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Archive, Eye, EyeOff } from "lucide-react";
-import { useTasksWithRelations, useSeedTaskCache } from "@/lib/query/queries/tasks";
 import { useRealtimeTasks } from "@/lib/hooks/use-realtime-tasks";
-import type { TaskWithRelations } from "@/lib/actions/tasks";
 import type { List } from "@/lib/actions/lists";
 import type { Board } from "@/lib/actions/boards";
 import Link from "next/link";
@@ -34,14 +32,12 @@ interface BoardContentProps {
   workspace: { id: string; name: string };
   board: Board;
   lists: List[];
-  initialTasks: TaskWithRelations[];
 }
 
 export function BoardContent({
   workspace,
   board,
   lists,
-  initialTasks,
 }: BoardContentProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -57,19 +53,6 @@ export function BoardContent({
   });
   const [isPending, startTransition] = useTransition();
 
-  // Use deferred value for filters to keep UI responsive
-  const deferredFilters = useDeferredValue(filters);
-
-  // Use query hook for tasks
-  const { data: tasks = initialTasks, isLoading } = useTasksWithRelations(
-    board.id,
-    showArchived,
-    initialTasks // Pass initial data to prevent refetch
-  );
-
-  // Pre-seed individual task cache so TaskDetailModal opens instantly
-  useSeedTaskCache(tasks);
-
   // Subscribe to realtime updates for tasks
   const listIds = useMemo(() => lists.map((l) => l.id), [lists]);
   useRealtimeTasks(board.id, listIds);
@@ -83,9 +66,6 @@ export function BoardContent({
       router.replace(`/${workspace.id}/${board.id}`, { scroll: false });
     }
   }, [searchParams, workspace.id, board.id, router]);
-
-  // Apply filters to tasks using deferred filters
-  const filteredTasks = useMemo(() => filterTasks(tasks, deferredFilters), [tasks, deferredFilters]);
 
   // Handle view changes with transition
   const handleViewChange = (view: ViewType) => {
@@ -103,13 +83,8 @@ export function BoardContent({
 
   const handleToggleArchived = () => {
     setShowArchived(!showArchived);
-    // Query will automatically refetch with new showArchived value
+    // Each KanbanColumn will handle refetching with new showArchived value
   };
-
-  // Count archived tasks for display
-  const archivedCount = showArchived
-    ? tasks.filter((t) => t.archived).length
-    : 0;
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex flex-col">
@@ -145,7 +120,6 @@ export function BoardContent({
               variant={showArchived ? "secondary" : "ghost"}
               size="sm"
               onClick={handleToggleArchived}
-              disabled={isLoading}
               className="gap-2"
             >
               <Archive className="h-4 w-4" />
@@ -153,11 +127,6 @@ export function BoardContent({
                 <>
                   <EyeOff className="h-3 w-3" />
                   Hide Archived
-                  {archivedCount > 0 && (
-                    <span className="text-xs bg-muted px-1.5 py-0.5 rounded">
-                      {archivedCount}
-                    </span>
-                  )}
                 </>
               ) : (
                 <>
@@ -179,14 +148,15 @@ export function BoardContent({
             boardId={board.id}
             workspaceId={workspace.id}
             lists={lists}
-            tasks={filteredTasks}
             showArchived={showArchived}
           />
         )}
+        {/* Note: List, Calendar, and Workload views still need full task data */}
+        {/* These can be updated later to use per-list loading or a different strategy */}
         {currentView === "list" && (
           <Suspense fallback={<ViewLoadingFallback />}>
             <ListView
-              tasks={filteredTasks}
+              tasks={[]}
               lists={lists}
               workspaceId={workspace.id}
               boardId={board.id}
@@ -196,7 +166,7 @@ export function BoardContent({
         {currentView === "calendar" && (
           <Suspense fallback={<ViewLoadingFallback />}>
             <CalendarView
-              tasks={filteredTasks}
+              tasks={[]}
               workspaceId={workspace.id}
               boardId={board.id}
             />
@@ -205,7 +175,7 @@ export function BoardContent({
         {currentView === "workload" && (
           <Suspense fallback={<ViewLoadingFallback />}>
             <WorkloadView
-              tasks={filteredTasks}
+              tasks={[]}
               workspaceId={workspace.id}
               boardId={board.id}
             />

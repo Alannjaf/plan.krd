@@ -13,12 +13,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Folder, Users, MoreHorizontal, Pencil, Trash2, Settings } from "lucide-react";
-import type { WorkspaceWithMeta } from "@/lib/actions/workspaces";
+import type { WorkspaceWithMeta, WorkspaceSummary } from "@/lib/actions/workspaces";
 import { EditWorkspaceDialog } from "./edit-workspace-dialog";
 import { DeleteWorkspaceDialog } from "./delete-workspace-dialog";
 
 interface WorkspaceCardProps {
-  workspace: WorkspaceWithMeta;
+  workspace: WorkspaceWithMeta | WorkspaceSummary;
 }
 
 export function WorkspaceCard({ workspace }: WorkspaceCardProps) {

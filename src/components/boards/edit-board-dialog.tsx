@@ -12,12 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { type Board } from "@/lib/actions/boards";
+import { type Board, type BoardSummary } from "@/lib/actions/boards";
 import { useUpdateBoard } from "@/lib/query/mutations/boards";
 import { Loader2 } from "lucide-react";
 
 interface EditBoardDialogProps {
-  board: Board;
+  board: Board | BoardSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }

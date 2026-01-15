@@ -10,13 +10,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { type Board } from "@/lib/actions/boards";
+import { type Board, type BoardSummary } from "@/lib/actions/boards";
 import { useDeleteBoard } from "@/lib/query/mutations/boards";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 interface DeleteBoardDialogProps {
-  board: Board;
+  board: Board | BoardSummary;
   workspaceId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
