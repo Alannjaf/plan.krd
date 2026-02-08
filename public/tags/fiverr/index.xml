@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Fiverr on Talent KRD</title>
+    <link>https://talent.krd/tags/fiverr/</link>
+    <description>Recent content in Fiverr on Talent KRD</description>
+    <image>
+      <title>Talent KRD</title>
+      <url>https://talent.krd/</url>
+      <link>https://talent.krd/</link>
+    </image>
+    <generator>Hugo -- 0.142.0</generator>
+    <language>en-us</language>
+    <lastBuildDate>Sat, 07 Feb 2026 10:00:00 +0300</lastBuildDate>
+    <atom:link href="https://talent.krd/tags/fiverr/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>From Zero to Freelancer: A 30-Day Action Plan for Beginners in Iraq</title>
+      <link>https://talent.krd/posts/zero-to-freelancer-30-day-plan-iraq/</link>
+      <pubDate>Sat, 07 Feb 2026 10:00:00 +0300</pubDate>
+      <guid>https://talent.krd/posts/zero-to-freelancer-30-day-plan-iraq/</guid>
+      <description>A concrete, day-by-day 30-day plan to go from zero freelancing experience to landing your first paid client from Iraq. No vague advice — specific actions for each day.</description>
+    </item>
+  </channel>
+</rss>
